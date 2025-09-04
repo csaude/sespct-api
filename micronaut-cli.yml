@@ -1,0 +1,6 @@
+applicationType: default
+defaultPackage: mz.org.csaude.sespcet.api
+testFramework: junit
+sourceLanguage: java
+buildTool: gradle
+features: [ app-name, data, data-jpa, graalvm, gradle, h2, http-client-test, java, java-application, jdbc-hikari, jul-to-slf4j, junit, junit-platform-suite-engine, liquibase, logback, management, micrometer, micrometer-datadog, micronaut-aot, micronaut-build, micronaut-http-validation, netty-server, properties, readme, security-annotations, security-jwt, serialization-jackson, shade, static-resources, validation ]

@@ -1,0 +1,48 @@
+micronaut:
+  application:
+    name: sespct-api
+  server:
+    port: 8383
+    context-path: /api
+  security:
+    authentication: bearer
+    token:
+      jwt:
+        signatures:
+          secret:
+            generator:
+              # defina por variável de ambiente em produção
+              secret: ${JWT_GENERATOR_SIGNATURE_SECRET:pleaseChangeThisSecretForANewOne}
+---
+netty:
+  default:
+    allocator:
+      max-order: 3
+
+# Liquibase
+liquibase:
+  datasources:
+    default:
+      enabled: true
+      change-log: classpath:db/liquibase-changelog.xml
+
+# JPA / Hibernate
+jpa:
+  default:
+    properties:
+      hibernate:
+        hbm2ddl:
+          auto: none
+
+# DataSource (MariaDB)
+datasources:
+  default:
+    url: jdbc:mariadb://${SESPCT_DB_HOST}:${SESPCT_DB_PORT}/sespct
+    username: ${SESPCT_DB_USERNAME}
+    password: ${SESPCT_DB_PASSWORD}
+    schema-generate: NONE
+    db-type: mariadb
+    dialect: MYSQL
+    driver-class-name: org.mariadb.jdbc.Driver
+    maximum-pool-size: 50
+    minimum-idle: 5
