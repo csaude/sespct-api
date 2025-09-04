@@ -4,6 +4,10 @@ micronaut:
   server:
     port: 8383
     context-path: /api
+  caches:
+    settings:
+      expire-after-write: 5m
+      maximum-size: 500
   security:
     authentication: bearer
     token:
@@ -46,3 +50,8 @@ datasources:
     driver-class-name: org.mariadb.jdbc.Driver
     maximum-pool-size: 50
     minimum-idle: 5
+---
+sespct:
+  ct:
+    bootstrap:
+      enabled: true
