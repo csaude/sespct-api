@@ -35,6 +35,7 @@ dependencies {
     implementation("io.swagger.core.v3:swagger-jaxrs2:2.1.11")
     implementation("io.swagger.core.v3:swagger-core:2.1.11")
     implementation("io.micronaut.serde:micronaut-serde-jackson")
+    implementation("io.micronaut.cache:micronaut-cache-caffeine")
 
 
     implementation("io.micronaut.security:micronaut-security-jwt")

@@ -5,6 +5,83 @@
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
          http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd">
-    <changeSet id="01" author="username">
+    <!-- Criação da tabela SETTINGS baseada em BaseEntity + Setting -->
+    <changeSet id="001-create-settings" author="voloide">
+        <!-- Se já existir, não recria -->
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="settings"/>
+            </not>
+        </preConditions>
+
+        <!-- Para MySQL/MariaDB: engine + charset -->
+        <createTable tableName="settings" >
+
+            <!-- BaseEntity -->
+            <column name="ID" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false" primaryKeyName="pk_settings"/>
+            </column>
+
+            <column name="UUID" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_settings_uuid"/>
+            </column>
+
+            <column name="CREATED_BY" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="CREATED_AT" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="UPDATED_BY" type="VARCHAR(50)"/>
+
+            <column name="UPDATED_AT" type="TIMESTAMP"/>
+
+            <column name="LIFE_CYCLE_STATUS" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- Campos específicos de Setting -->
+            <column name="DESIGNATION" type="VARCHAR(150)">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- ACEITA TEXTOS MUITO LONGOS -->
+            <column name="SETTING_VALUE" type="LONGTEXT">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="SETTING_TYPE" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="ENABLED" type="BOOLEAN">
+                <constraints nullable="false"/>
+            </column>
+
+            <!-- descrição pode ser grande; TEXT é suficiente -->
+            <column name="DESCRIPTION" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- Unicidade por DESIGNATION (cada chave de configuração é única) -->
+        <addUniqueConstraint tableName="settings"
+                             columnNames="DESIGNATION"
+                             constraintName="uk_settings_designation"/>
+
+        <!-- Índices úteis -->
+        <createIndex tableName="settings" indexName="idx_settings_designation">
+            <column name="DESIGNATION"/>
+        </createIndex>
+
+        <createIndex tableName="settings" indexName="idx_settings_enabled">
+            <column name="ENABLED"/>
+        </createIndex>
+
+        <createIndex tableName="settings" indexName="idx_settings_created_at">
+            <column name="CREATED_AT"/>
+        </createIndex>
     </changeSet>
 </databaseChangeLog>

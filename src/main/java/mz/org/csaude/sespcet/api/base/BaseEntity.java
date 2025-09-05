@@ -18,11 +18,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Data
-@EqualsAndHashCode(onlyExplicitlyIncluded = true)
 @AllArgsConstructor
 @NoArgsConstructor
 @MappedSuperclass
-@Introspected // Enables Micronaut's reflection-free serialization/deserialization
+@Introspected
 @Serdeable.Deserializable
 public abstract class BaseEntity implements RestAPIResponse, Serializable, Comparable<BaseEntity> {
 
