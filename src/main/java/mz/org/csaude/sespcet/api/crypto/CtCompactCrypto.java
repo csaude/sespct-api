@@ -3,6 +3,8 @@ package mz.org.csaude.sespcet.api.crypto;
 
 import io.micronaut.core.annotation.NonNull;
 import jakarta.inject.Singleton;
+import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
+import mz.org.csaude.sespcet.api.service.EctWebhookService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
 import javax.crypto.Cipher;
@@ -20,8 +22,10 @@ import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+import java.util.Map;
 import java.util.Optional;
 
+import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PRIVATE_PEM;
 import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KMS_MASTER_KEY_B64;
 
 @Singleton
@@ -253,5 +257,18 @@ public class CtCompactCrypto {
         s.initVerify(ctPublic);
         s.update(dataString.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return s.verify(sig);
+    }
+
+    public EncryptedRequestDTO buildEncryptedEnvelope(Map<String, Object> clear, String ctPubPem, String apiPrvPem, String json) throws Exception {
+        if (ctPubPem == null || apiPrvPem == null) {
+            throw new IllegalStateException("Chaves ausentes (CT public ou API private)");
+        }
+        PublicKey  ctPublic   = readPublicKeyPem(ctPubPem);
+        PrivateKey apiPrivate = readPrivateKeyPem(apiPrvPem);
+
+        String dataB64 = encryptCompact(json, ctPublic);         // cifra
+        String sigB64  = signBase64(dataB64, apiPrivate);        // assina (sobre a string base64)
+
+        return new EncryptedRequestDTO(dataB64, sigB64);                 // só {data, signature}
     }
 }

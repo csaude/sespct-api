@@ -9,16 +9,12 @@ import io.micronaut.json.JsonMapper;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
-import mz.org.csaude.sespcet.api.dto.ClientDataDTO;
 import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
-import mz.org.csaude.sespcet.api.http.CtAuthFilter;
 import mz.org.csaude.sespcet.api.oauth.OAuthService;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
-import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.util.*;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.*;
@@ -61,7 +57,7 @@ public class EctWebhookService {
                 Map<String, Object> clear = new LinkedHashMap<>();
                 clear.put("url", webhookUrl);
                 clear.put("event", event);
-                EncryptedRequestDTO body = buildEncryptedEnvelope(clear);
+                EncryptedRequestDTO body = crypto.buildEncryptedEnvelope(clear, settings.get(CT_KEYS_CT_PUBLIC_PEM, null), settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null),  new String(jsonMapper.writeValueAsBytes(clear), StandardCharsets.UTF_8));
 
                 HttpRequest<EncryptedRequestDTO> req = HttpRequest.POST(uri, body)
                         .contentType(MediaType.APPLICATION_JSON_TYPE)
@@ -95,7 +91,7 @@ public class EctWebhookService {
                 Map<String, Object> clear = new LinkedHashMap<>();
                 clear.put("url", webhookUrl);
                 clear.put("event", event);
-                EncryptedRequestDTO body = buildEncryptedEnvelope(clear);
+                EncryptedRequestDTO body = crypto.buildEncryptedEnvelope(clear, settings.get(CT_KEYS_CT_PUBLIC_PEM, null), settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null),  new String(jsonMapper.writeValueAsBytes(clear), StandardCharsets.UTF_8));
 
                 HttpRequest<EncryptedRequestDTO> req = HttpRequest.DELETE(uri, body)
                         .contentType(MediaType.APPLICATION_JSON_TYPE)
@@ -120,23 +116,6 @@ public class EctWebhookService {
     }
 
     /* ------------ helpers ------------ */
-
-    private EncryptedRequestDTO buildEncryptedEnvelope(Map<String,Object> clear) throws Exception {
-        String json = new String(jsonMapper.writeValueAsBytes(clear), StandardCharsets.UTF_8);
-
-        String ctPubPem  = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
-        String apiPrvPem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
-        if (ctPubPem == null || apiPrvPem == null) {
-            throw new IllegalStateException("Chaves ausentes (CT public ou API private)");
-        }
-        PublicKey  ctPublic   = crypto.readPublicKeyPem(ctPubPem);
-        PrivateKey apiPrivate = crypto.readPrivateKeyPem(apiPrvPem);
-
-        String dataB64 = crypto.encryptCompact(json, ctPublic);         // cifra
-        String sigB64  = crypto.signBase64(dataB64, apiPrivate);        // assina (sobre a string base64)
-
-        return new EncryptedRequestDTO(dataB64, sigB64);                 // só {data, signature}
-    }
 
     private List<String> eventsFromSettings() {
         String csv = settings.get(CT_WEBHOOK_EVENTS, "PEDIDO_REPLIED,PEDIDO_UPDATED,RESPOSTA_UPDATED");
