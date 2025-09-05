@@ -84,4 +84,82 @@
             <column name="CREATED_AT"/>
         </createIndex>
     </changeSet>
+
+    <changeSet id="2-create-pedidos" author="Joao Nuno Mabjaia">
+        <createTable tableName="pedidos">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="pedido_id_ct" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="facility_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload" type="LONGTEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processed_at" type="DATETIME"/>
+            <column name="error_msg" type="TEXT"/>
+            <column name="created_by" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_at" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="updated_by" type="varchar(50)"/>
+
+            <column name="updated_at" type="timestamp"/>
+
+            <column name="life_cycle_status" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
+
+    <!-- Tabela respostas -->
+    <changeSet id="3-create-respostas" author="Joao Nuno Mabjaia">
+        <createTable tableName="respostas">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="resposta_id_ct" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="pedido_id_ct" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="facility_code" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="payload" type="LONGTEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="processed_at" type="DATETIME"/>
+            <column name="error_msg" type="TEXT"/>
+            <column name="created_by" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="created_at" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+
+            <column name="updated_by" type="varchar(50)"/>
+
+            <column name="updated_at" type="timestamp"/>
+
+            <column name="life_cycle_status" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+    </changeSet>
 </databaseChangeLog>
