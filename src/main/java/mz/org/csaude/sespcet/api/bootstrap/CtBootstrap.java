@@ -148,8 +148,8 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
 
         // ---------- CT webhook URL (derivado da base da tua API) ----------
         if (isBlank(settings.get(CT_WEBHOOK_URL, null))) {
-            String webhookUrl = join(apiBase, "/public/webhook/e-ft");
-            settings.upsert(CT_WEBHOOK_URL, webhookUrl, "STRING",
+            String webhookUrl = join(apiBase, "/public/webhook/ect");
+            settings.upsert(CT_WEBHOOK_URL, "https://viewing-polish-diagnostic-supplier.trycloudflare.com/api/public/webhook/ect", "STRING",
                     "URL pública para receção de webhooks do eCT", true, "system");
         }
     }

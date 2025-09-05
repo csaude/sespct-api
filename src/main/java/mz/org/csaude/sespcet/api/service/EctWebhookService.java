@@ -10,6 +10,8 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
 import mz.org.csaude.sespcet.api.dto.ClientDataDTO;
+import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
+import mz.org.csaude.sespcet.api.http.CtAuthFilter;
 import mz.org.csaude.sespcet.api.oauth.OAuthService;
 
 import java.net.URI;
@@ -47,67 +49,98 @@ public class EctWebhookService {
     /** Registo no eCT (POST /api/webhooks). */
     public void register() {
         try {
-            URI uri = buildCtUri("/api/webhooks"); // se preferir, torne configurável
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("url", settings.get(CT_WEBHOOK_URL, "http://localhost:8383/api/public/webhook/e-ft"));
-            payload.put("events", eventsFromSettings());
-            payload.put("clientKeyId", settings.get(CT_KEYS_CLIENT_KEY_ID, "sespct-api-key-1"));
+            String webhookUrl = settings.get(
+                    CT_WEBHOOK_URL,
+                    "https://viewing-polish-diagnostic-supplier.trycloudflare.com/api/public/webhook/ect"
+            );
 
-            ClientDataDTO body = buildEncryptedEnvelope(payload);
-            HttpRequest<ClientDataDTO> req = HttpRequest.POST(uri, body)
-                    .contentType(MediaType.APPLICATION_JSON_TYPE)
-                    .bearerAuth(oauth.getToken()); // ou deixe o CtAuthFilter adicionar
+            URI uri = buildCtUri("/api/v1/webhooks");
 
-            http.toBlocking().retrieve(req, Argument.mapOf(String.class, Object.class));
+            // registar 1 evento por request
+            for (String event : eventsFromSettings()) {
+                Map<String, Object> clear = new LinkedHashMap<>();
+                clear.put("url", webhookUrl);
+                clear.put("event", event);
+                EncryptedRequestDTO body = buildEncryptedEnvelope(clear);
+
+                HttpRequest<EncryptedRequestDTO> req = HttpRequest.POST(uri, body)
+                        .contentType(MediaType.APPLICATION_JSON_TYPE)
+                        .accept(MediaType.APPLICATION_JSON_TYPE)
+                        .bearerAuth(oauth.getToken()); // CtAuthFilter não interfere pq já existe Authorization
+
+                HttpResponse<String> resp = http.toBlocking().exchange(req, Argument.of(String.class));
+                int code = resp.getStatus().getCode();
+                if (code < 200 || code >= 300) {
+                    throw new IllegalStateException("status=" + resp.getStatus() +
+                            " body=" + resp.getBody().orElse(""));
+                }
+            }
+
             settings.upsert(CT_WEBHOOK_REGISTERED, "true", "BOOLEAN", "Webhook registado no eCT", true, "system");
+        } catch (io.micronaut.http.client.exceptions.HttpClientResponseException e) {
+            String body = e.getResponse().getBody(String.class).orElse("");
+            throw new IllegalStateException("Falhou o registo de webhook no eCT: status="
+                    + e.getStatus() + " body=" + body, e);
         } catch (Exception e) {
-            throw new IllegalStateException("Falhou o registo de webhook no eCT", e);
+            throw new IllegalStateException("Falhou o registo de webhook no eCT: " + e.getMessage(), e);
         }
     }
 
-    /** Anulação no eCT (DELETE /api/webhooks). */
     public void unregister() {
         try {
-            URI uri = buildCtUri("/api/webhooks");
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("url", settings.get(CT_WEBHOOK_URL, ""));
+            String webhookUrl = settings.get(CT_WEBHOOK_URL, "");
+            URI uri = buildCtUri("/api/v1/webhooks");
 
-            ClientDataDTO body = buildEncryptedEnvelope(payload);
-            HttpRequest<ClientDataDTO> req = HttpRequest.DELETE(uri, body)
-                    .contentType(MediaType.APPLICATION_JSON_TYPE)
-                    .bearerAuth(oauth.getToken());
+            for (String event : eventsFromSettings()) {
+                Map<String, Object> clear = new LinkedHashMap<>();
+                clear.put("url", webhookUrl);
+                clear.put("event", event);
+                EncryptedRequestDTO body = buildEncryptedEnvelope(clear);
 
-            http.toBlocking().retrieve(req, Argument.VOID);
+                HttpRequest<EncryptedRequestDTO> req = HttpRequest.DELETE(uri, body)
+                        .contentType(MediaType.APPLICATION_JSON_TYPE)
+                        .accept(MediaType.APPLICATION_JSON_TYPE)
+                        .bearerAuth(oauth.getToken());
+
+                HttpResponse<?> resp = http.toBlocking().exchange(req);
+                int code = resp.getStatus().getCode();
+                if (code < 200 || code >= 300) {
+                    throw new IllegalStateException("status=" + resp.getStatus());
+                }
+            }
+
             settings.upsert(CT_WEBHOOK_REGISTERED, "false", "BOOLEAN", "Webhook registado no eCT", true, "system");
+        } catch (io.micronaut.http.client.exceptions.HttpClientResponseException e) {
+            String body = e.getResponse().getBody(String.class).orElse("");
+            throw new IllegalStateException("Falhou a anulação de webhook no eCT: status="
+                    + e.getStatus() + " body=" + body, e);
         } catch (Exception e) {
-            throw new IllegalStateException("Falhou a anulação de webhook no eCT", e);
+            throw new IllegalStateException("Falhou a anulação de webhook no eCT: " + e.getMessage(), e);
         }
     }
 
     /* ------------ helpers ------------ */
 
-    private ClientDataDTO buildEncryptedEnvelope(Map<String,Object> payload) throws Exception {
-        String json = new String(jsonMapper.writeValueAsBytes(payload), StandardCharsets.UTF_8);
+    private EncryptedRequestDTO buildEncryptedEnvelope(Map<String,Object> clear) throws Exception {
+        String json = new String(jsonMapper.writeValueAsBytes(clear), StandardCharsets.UTF_8);
 
-        String ctPubPem   = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
-        String apiPrvPem  = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
+        String ctPubPem  = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
+        String apiPrvPem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
         if (ctPubPem == null || apiPrvPem == null) {
             throw new IllegalStateException("Chaves ausentes (CT public ou API private)");
         }
         PublicKey  ctPublic   = crypto.readPublicKeyPem(ctPubPem);
         PrivateKey apiPrivate = crypto.readPrivateKeyPem(apiPrvPem);
 
-        String dataB64 = crypto.encryptCompact(json, ctPublic);
-        String sigB64  = crypto.signBase64(dataB64, apiPrivate);
-        String keyId   = settings.get(CT_KEYS_CLIENT_KEY_ID, "sespct-api-key-1");
+        String dataB64 = crypto.encryptCompact(json, ctPublic);         // cifra
+        String sigB64  = crypto.signBase64(dataB64, apiPrivate);        // assina (sobre a string base64)
 
-        return new ClientDataDTO(dataB64, sigB64, keyId);
+        return new EncryptedRequestDTO(dataB64, sigB64);                 // só {data, signature}
     }
 
     private List<String> eventsFromSettings() {
         String csv = settings.get(CT_WEBHOOK_EVENTS, "PEDIDO_REPLIED,PEDIDO_UPDATED,RESPOSTA_UPDATED");
-        String[] parts = csv.split("\\s*,\\s*");
-        return Arrays.asList(parts);
+        return Arrays.asList(csv.split("\\s*,\\s*"));
     }
 
     private URI buildCtUri(String path) throws URISyntaxException {

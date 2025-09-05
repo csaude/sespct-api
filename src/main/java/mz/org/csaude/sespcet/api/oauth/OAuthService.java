@@ -9,6 +9,7 @@ import io.micronaut.http.client.annotation.Client;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
+import mz.org.csaude.sespcet.api.http.CtAuthFilter;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
 import java.net.URI;
@@ -65,7 +66,8 @@ public class OAuthService {
 
         HttpRequest<String> req = HttpRequest.POST(uri, encodeForm(form))
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED_TYPE)
-                .header(HttpHeaders.AUTHORIZATION, basicAuth(clientId(), clientSecret()));
+                .header(HttpHeaders.AUTHORIZATION, basicAuth(clientId(), clientSecret()))
+                .header(CtAuthFilter.BYPASS_HEADER, "true");
 
         Map<String, Object> body;
         try {
@@ -85,7 +87,8 @@ public class OAuthService {
 
         HttpRequest<String> req = HttpRequest.POST(uri, encodeForm(form))
                 .contentType(MediaType.APPLICATION_FORM_URLENCODED_TYPE)
-                .header(HttpHeaders.AUTHORIZATION, basicAuth(clientId(), clientSecret()));
+                .header(HttpHeaders.AUTHORIZATION, basicAuth(clientId(), clientSecret()))
+                .header(CtAuthFilter.BYPASS_HEADER, "true");
 
         Map<String, Object> body;
         try {

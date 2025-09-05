@@ -229,4 +229,29 @@ public class CtCompactCrypto {
             return null; // o chamador fará fallback {b64}
         }
     }
+
+    private static byte[] decodeSignatureFlexible(String s) {
+        try { return java.util.Base64.getDecoder().decode(s); }
+        catch (IllegalArgumentException e1) {
+            try { return java.util.Base64.getUrlDecoder().decode(s); }
+            catch (IllegalArgumentException e2) {
+                String t = s.replaceAll("\\s+", "");
+                if (t.length() % 2 != 0) throw new IllegalArgumentException("Odd-length hex signature");
+                byte[] out = new byte[t.length() / 2];
+                for (int i = 0; i < out.length; i++) {
+                    out[i] = (byte) Integer.parseInt(t.substring(2*i, 2*i+2), 16);
+                }
+                return out;
+            }
+        }
+    }
+
+    public static boolean verifySignatureOverString(String dataString, String signatureStr,
+                                                    java.security.PublicKey ctPublic) throws Exception {
+        byte[] sig = decodeSignatureFlexible(signatureStr);
+        java.security.Signature s = java.security.Signature.getInstance("SHA256withRSA");
+        s.initVerify(ctPublic);
+        s.update(dataString.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return s.verify(sig);
+    }
 }
