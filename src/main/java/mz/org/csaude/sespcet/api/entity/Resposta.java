@@ -12,8 +12,11 @@ import java.util.Date;
 @Getter
 @Setter
 @Serdeable
-@Table(name = "pedidos")
-public class Pedido extends BaseEntity {
+@Table(name = "respostas")
+public class Resposta extends BaseEntity {
+
+    @Column(nullable = false, name = "resposta_id_ct")
+    private String respostaIdCt;
 
     @Column(nullable = false, name = "pedido_id_ct")
     private String pedidoIdCt;
