@@ -10,7 +10,6 @@ import mz.org.csaude.sespcet.api.util.LifeCycleStatus;
 import mz.org.csaude.sespcet.api.util.Utilities;
 
 import java.util.Optional;
-import java.util.UUID;
 
 @Singleton
 public class ClientService {
@@ -42,7 +41,7 @@ public class ClientService {
         return clientRepository.save(client);
     }
 
-    public Optional<Client> findByUsCode(String usCode) {
-        return clientRepository.findByUsCode(usCode);
+    public Optional<Client> findByClientId(String clientId) {
+        return clientRepository.findByClientId(clientId);
     }
 }

@@ -47,17 +47,17 @@ public class RespostaController extends BaseController {
 
     @Get("/")
     public HttpResponse<?> listNewRespostas(@Nullable Pageable pageable,
-                                            Authentication authentication) { // Mais tarde iremos encontrar o usCode em authentication
+                                            Authentication authentication) { // Mais tarde iremos encontrar o uclientId em authentication
 
 
-        String usCode = authentication.getName().toString(); // Mais tarde mudar para authentication.getUsCode().toString()
+        String clientId = authentication.getName().toString(); // Mais tarde mudar para authentication.getClientId().toString()
+        Client client = clientService.findByClientId(clientId)
+                .orElseThrow(() -> new HttpStatusException(HttpStatus.NOT_FOUND, "Cliente não encontrado"));
 
         Page<Resposta> respostas = respostaService.getNewRespostas(
                 pageable != null ? pageable : Pageable.from(0, 200),
-                usCode
+                clientId
         );
-        Client client = clientService.findByUsCode(usCode)
-                .orElseThrow(() -> new HttpStatusException(HttpStatus.NOT_FOUND, "Cliente não encontrado"));
 
         List<EncryptedRequestDTO> respostaDTOs = respostas.getContent().stream()
                 .map(resposta -> {

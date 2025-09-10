@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PRIVATE_PEM;
-import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PUBLIC_PEM;
 
 @Secured(SecurityRule.IS_AUTHENTICATED)
 @Controller(RESTAPIMapping.PEDIDO_CONTROLLER)
@@ -55,11 +54,11 @@ public class PedidoController extends BaseController {
     @ApiResponse(responseCode = "200", description = "Pedidos retrieved successfully")
     @Get("/")
     public HttpResponse<?> listNewPedidos(@Nullable Pageable pageable,
-                                          Authentication authentication) { // Mais tarde iremos encontrar o uuid da US em authentication
+                                          Authentication authentication) { // Mais tarde iremos encontrar o uclientId em authentication
         Page<Pedido> pedidos = pedidoService.getNewPedidos(pageable != null ? pageable : Pageable.from(0, 200));
 
-        String usCode = authentication.getName().toString(); // Mais tarde mudar para authentication.getUsCode().toString()
-        Client client = clientService.findByUsCode(usCode)
+        String clientId = authentication.getName().toString(); // Mais tarde mudar para authentication.getClientId().toString()
+        Client client = clientService.findByClientId(clientId)
                 .orElseThrow(() -> new HttpStatusException(HttpStatus.NOT_FOUND, "Cliente não encontrado"));
 
         List<EncryptedRequestDTO> pedidoDTOs = pedidos.getContent().stream()
