@@ -9,6 +9,7 @@ import mz.org.csaude.sespcet.api.util.DateUtils;
 import mz.org.csaude.sespcet.api.util.LifeCycleStatus;
 import mz.org.csaude.sespcet.api.util.Utilities;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Singleton
@@ -39,5 +40,9 @@ public class ClientService {
         client.setCreatedBy("System");
 
         return clientRepository.save(client);
+    }
+
+    public Optional<Client> findByUsCode(String usCode) {
+        return clientRepository.findByUsCode(usCode);
     }
 }

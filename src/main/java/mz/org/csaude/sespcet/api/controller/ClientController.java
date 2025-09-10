@@ -23,7 +23,6 @@ public class ClientController extends BaseController {
     private ClientService clientService;
 
     @Inject
-
     private SettingService settings;
 
     @Post
