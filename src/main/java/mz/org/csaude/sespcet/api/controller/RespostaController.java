@@ -11,6 +11,7 @@ import io.micronaut.security.rules.SecurityRule;
 import jakarta.inject.Inject;
 import mz.org.csaude.sespcet.api.api.RESTAPIMapping;
 import mz.org.csaude.sespcet.api.api.response.PaginatedResponse;
+import mz.org.csaude.sespcet.api.api.response.SuccessResponse;
 import mz.org.csaude.sespcet.api.base.BaseController;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
 import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
@@ -49,7 +50,7 @@ public class RespostaController extends BaseController {
                         // Substitua com a chave pública do cliente correspondente
 //                        String clientPublicKey = settings.getCtPublicPem();
                         String clientPublicKey = "bdbdbdbd";
-                        // Chave privada da sua API
+                        // Chave privada da nasso API
 //                        String apiPrivateKey = settings.getApiPrivatePem();
                         String apiPrivateKey = "SSSSSSSSS";
 
@@ -85,6 +86,6 @@ public class RespostaController extends BaseController {
         String username = authentication.getName();
 
         respostaService.markConsumed(respostaUuids);
-        return HttpResponse.ok("Respostas marcadas como consumidas com sucesso");
+        return HttpResponse.ok(SuccessResponse.messageOnly("Respostas marcadas como consumidas com sucesso"));
     }
 }

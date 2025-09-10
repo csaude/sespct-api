@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import jakarta.inject.Inject;
 import mz.org.csaude.sespcet.api.api.RESTAPIMapping;
 import mz.org.csaude.sespcet.api.api.response.PaginatedResponse;
+import mz.org.csaude.sespcet.api.api.response.SuccessResponse;
 import mz.org.csaude.sespcet.api.base.BaseController;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
 import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
@@ -79,7 +80,7 @@ public class PedidoController extends BaseController {
     @Post("/mark-consumed")
     public HttpResponse<?> markPedidosConsumed(@Body List<String> pedidoUuids) {
         pedidoService.markConsumed(pedidoUuids);
-        return HttpResponse.ok("Pedidos marcados como consumidos com sucesso");
+        return HttpResponse.ok(SuccessResponse.messageOnly(("Pedidos marcados como consumidos com sucesso")));
     }
 
 }
