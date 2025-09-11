@@ -1,6 +1,7 @@
 package mz.org.csaude.sespcet.api.bootstrap;
 
 import io.micronaut.context.annotation.Value;
+import io.micronaut.context.env.Environment;
 import io.micronaut.context.event.ApplicationEventListener;
 import io.micronaut.context.event.StartupEvent;
 import io.micronaut.http.MediaType;
@@ -11,7 +12,6 @@ import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
 import mz.org.csaude.sespcet.api.oauth.OAuthService;
-import mz.org.csaude.sespcet.api.service.EctWebhookService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,9 +23,7 @@ import java.security.KeyPairGenerator;
 import java.security.SecureRandom;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.*;
@@ -39,7 +37,6 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
     private final SettingService settings;
     private final CtCompactCrypto crypto;
     private final OAuthService oauth;
-    private final EctWebhookService webhookService;
 
     @Value("${micronaut.server.port:8383}")
     int serverPort;
@@ -52,18 +49,19 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
 
     @Inject @Client("/") HttpClient http;
 
+    private final Environment env;
+
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "ct-bootstrap-scheduler");
         t.setDaemon(true);
         return t;
     });
 
-
-    public CtBootstrap(SettingService settings, CtCompactCrypto crypto, OAuthService oauth, EctWebhookService webhookService) {
+    public CtBootstrap(SettingService settings, CtCompactCrypto crypto, OAuthService oauth, Environment env) {
         this.settings = settings;
         this.crypto = crypto;
         this.oauth = oauth;
-        this.webhookService = webhookService;
+        this.env = env;
     }
 
     @Override
@@ -77,9 +75,11 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         ensureClientId();
         ensureKeyPairForApi();
         ensureRegistration();
+        primeWebhookSettings();
+        primeSyncSettings();
         log.info("CtBootstrap: done");
 
-        // Try to obtain a token shortly after startup; retry a few times without killing the app.
+        // Prefetch de token com retries leves (sem registar webhook aqui)
         scheduleTokenFetchWithRetry();
     }
 
@@ -95,19 +95,13 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
                     String token = oauth.getToken();
                     if (token != null && !token.isBlank()) {
                         log.info("CtBootstrap: token obtained on attempt {}", attempt);
-                        try {
-                            webhookService.ensureRegistered();
-                            log.info("CtBootstrap: webhook verificado/registado");
-                        } catch (Exception ex) {
-                            log.warn("CtBootstrap: falha ao registar webhook: {}", ex.toString());
-                        }
                         scheduler.shutdown();
                     } else {
                         throw new IllegalStateException("Empty token");
                     }
                 } catch (Exception e) {
                     if (attempt >= maxAttempts) {
-                        log.warn("CtBootstrap: failed to obtain token after {} attempts – will continue without prefetch. Cause: {}",
+                        log.warn("CtBootstrap: failed to obtain token after {} attempts – continuing without prefetch. Cause: {}",
                                 attempt, e.toString());
                         scheduler.shutdown();
                     } else {
@@ -140,7 +134,6 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         String apiBase = settings.get(SESPCT_API_BASE_URL, null);
         if (isBlank(apiBase)) {
             String scheme = sslEnabled ? "https" : "http";
-            // host padrão "localhost"; se estiver atrás de proxy, podes definir por env SESPCT_API_BASE_URL
             apiBase = scheme + "://localhost:" + serverPort + normalizePath(contextPath);
             settings.upsert(SESPCT_API_BASE_URL, apiBase, "STRING",
                     "Base URL desta API (SESPCT-API)", true, "system");
@@ -149,8 +142,19 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         // ---------- CT webhook URL (derivado da base da tua API) ----------
         if (isBlank(settings.get(CT_WEBHOOK_URL, null))) {
             String webhookUrl = join(apiBase, "/public/webhook/ect");
-            settings.upsert(CT_WEBHOOK_URL, "https://viewing-polish-diagnostic-supplier.trycloudflare.com/api/public/webhook/ect", "STRING",
+            settings.upsert(CT_WEBHOOK_URL, webhookUrl, "STRING",
                     "URL pública para receção de webhooks do eCT", true, "system");
+        }
+
+        if (isBlank(settings.get(CT_ENDPOINT_RESPOSTAS_CONSUMED, null))) {
+            settings.upsert(
+                    CT_ENDPOINT_RESPOSTAS_CONSUMED,
+                    join(base, "/api/respostas/consumed"),
+                    "STRING",
+                    "Endpoint para confirmar consumo de respostas (ACK)",
+                    true,
+                    "system"
+            );
         }
     }
 
@@ -214,6 +218,58 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         String encrypted = crypto.encryptForGP(plainSecret);
         settings.upsert(CT_OAUTH_CLIENT_SECRET, encrypted, "SECRET",
                 "Client secret do OAuth no eCT (cifrado)", true, "system");
+    }
+
+    /* -------------------- persist defaults for NEW settings -------------------- */
+
+    private void primeWebhookSettings() {
+        // Eventos por omissão
+        if (isBlank(settings.get(CT_WEBHOOK_EVENTS, null))) {
+            settings.upsert(CT_WEBHOOK_EVENTS,
+                    "PEDIDO_REPLIED,RESPOSTA_ADDED",
+                    "STRING", "Eventos subscritos para webhook (CSV)", true, "system");
+        }
+        // Segredo do webhook
+        if (isBlank(settings.get(CT_WEBHOOK_SECRET, null))) {
+            String secret = "webhook-" + randomHex(16);
+            settings.upsert(CT_WEBHOOK_SECRET, secret,
+                    "SECRET", "Segredo para validação de chamadas de webhook", true, "system");
+        }
+        // Timeout e política de retries
+        if (settings.get(CT_WEBHOOK_TIMEOUT_SECONDS, null) == null) {
+            settings.upsert(CT_WEBHOOK_TIMEOUT_SECONDS, "30",
+                    "INTEGER", "Timeout (segundos) no envio de webhooks", true, "system");
+        }
+        if (settings.get(CT_WEBHOOK_RETRY_MAX_ATTEMPTS, null) == null) {
+            settings.upsert(CT_WEBHOOK_RETRY_MAX_ATTEMPTS, "3",
+                    "INTEGER", "Tentativas máximas de reentrega de webhook", true, "system");
+        }
+        if (settings.get(CT_WEBHOOK_RETRY_BACKOFF_SECONDS, null) == null) {
+            settings.upsert(CT_WEBHOOK_RETRY_BACKOFF_SECONDS, "5",
+                    "INTEGER", "Intervalo (segundos) entre tentativas de reentrega", true, "system");
+        }
+        if (settings.get(CT_WEBHOOK_PAGINATION_SIZE, null) == null) {
+            settings.upsert(CT_WEBHOOK_PAGINATION_SIZE, "500",
+                    "INTEGER", "Tamanho dos lotes ao registar pedidoIds no webhook", true, "system");
+        }
+        // Flag informativa
+        if (isBlank(settings.get(CT_WEBHOOK_REGISTERED, null))) {
+            settings.upsert(CT_WEBHOOK_REGISTERED, "false",
+                    "BOOLEAN", "Webhook registado no eCT", true, "system");
+        }
+    }
+
+    // inclui defaults de cron/zone e page limit do sync
+    private void primeSyncSettings() {
+        if (settings.get(CT_SYNC_ENABLED, null) == null) {
+            settings.upsert(CT_SYNC_ENABLED, "true", "BOOLEAN", "Sync periódico activo", true, "system");
+        }
+        if (settings.get(CT_SYNC_LIMIT, null) == null) {
+            settings.upsert(CT_SYNC_LIMIT, "20", "INTEGER", "Itens por página (compat.)", true, "system");
+        }
+        if (settings.get(CT_SYNC_PAGE_LIMIT, null) == null) {
+            settings.upsert(CT_SYNC_PAGE_LIMIT, "20", "INTEGER", "Itens por página no fetch eCT", true, "system");
+        }
     }
 
     /* -------------------- helpers -------------------- */

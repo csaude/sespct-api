@@ -25,7 +25,7 @@ public class PedidoService {
         return pedidoRepository.findByStatus(Pedido.Status.NEW, pageable);
     }
 
-    public Pedido findByCtId(String pedidoIdCt, String facilityCode) {
+    public Pedido findByCtId(long pedidoIdCt, String facilityCode) {
         return pedidoRepository.findByPedidoIdCtAndFacilityCode(pedidoIdCt, facilityCode);
     }
 

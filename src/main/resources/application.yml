@@ -55,3 +55,8 @@ sespct:
   ct:
     bootstrap:
       enabled: true
+  sync:
+    enabled: true          # pode desligar sem recompilar
+    cron: "0 0/5 * * * ?"    # todos os dias às 02:05
+    zone: "Africa/Maputo"  # timezone local
+    limit: 20              # itens por página

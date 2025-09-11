@@ -7,6 +7,7 @@ import io.micronaut.data.model.Pageable;
 import mz.org.csaude.sespcet.api.entity.Resposta;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface RespostaRepository extends JpaRepository<Resposta, Long> {
@@ -15,10 +16,12 @@ public interface RespostaRepository extends JpaRepository<Resposta, Long> {
 
     Page<Resposta> findByStatusAndFacilityCode(Resposta.Status status, String facilityCode, Pageable pageable);
 
-    Resposta findByRespostaIdCtAndFacilityCode(String respostaIdCt, String facilityCode);
+    Resposta findByRespostaIdCtAndFacilityCode(Long respostaIdCt, String facilityCode);
 
     List<Resposta> findByUuidIn(List<String> uuids);
 
     @Override
     <S extends Resposta> List<S> saveAll(Iterable<S> entities);
+
+    Optional<Resposta> findByRespostaIdCt(Long respostaIdCt);
 }

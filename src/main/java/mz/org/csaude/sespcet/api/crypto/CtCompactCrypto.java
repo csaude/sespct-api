@@ -4,7 +4,6 @@ package mz.org.csaude.sespcet.api.crypto;
 import io.micronaut.core.annotation.NonNull;
 import jakarta.inject.Singleton;
 import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
-import mz.org.csaude.sespcet.api.service.EctWebhookService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
 import javax.crypto.Cipher;
@@ -22,10 +21,7 @@ import java.security.spec.MGF1ParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
-import java.util.Map;
-import java.util.Optional;
 
-import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PRIVATE_PEM;
 import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KMS_MASTER_KEY_B64;
 
 @Singleton
@@ -36,7 +32,7 @@ public class CtCompactCrypto {
 
     private static final int GCM_TAG_BITS = 128;   // 16 bytes tag
     private static final int GCM_IV_BYTES = 12;    // 12 bytes IV (nonce)
-    private static final int AES_BITS = 256;       // requer JDK 17 (ok)
+    private static final int AES_BITS     = 256;   // JDK 17 OK
 
     private final SettingService settings;
 
@@ -46,6 +42,7 @@ public class CtCompactCrypto {
 
     /* ===================== PEM utils ===================== */
 
+    /** Lê chave privada em PEM (PKCS#8). */
     public PrivateKey readPrivateKeyPem(@NonNull String pem) throws Exception {
         if (pem.contains("BEGIN RSA PRIVATE KEY")) {
             throw new IllegalArgumentException(
@@ -60,6 +57,7 @@ public class CtCompactCrypto {
         return KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(der));
     }
 
+    /** Lê chave pública em PEM (SubjectPublicKeyInfo/X.509). */
     public PublicKey readPublicKeyPem(@NonNull String pem) throws Exception {
         String b64 = pem.replaceAll("-----BEGIN [A-Z0-9 ]+-----", "")
                 .replaceAll("-----END [A-Z0-9 ]+-----", "")
@@ -68,18 +66,37 @@ public class CtCompactCrypto {
         return KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(der));
     }
 
-    /* ===================== CT crypto compat ===================== */
+    /* ===================== Compact envelope ===================== */
 
-    /** Verifica assinatura CT feita sobre a **string base64** (não sobre os bytes decodificados). */
-    public boolean verifySignatureBase64(String dataB64, String signatureB64, PublicKey ctPublic) throws Exception {
-        byte[] sig = Base64.getDecoder().decode(signatureB64);
-        Signature s = Signature.getInstance("SHA256withRSA");
-        s.initVerify(ctPublic);
-        s.update(dataB64.getBytes(StandardCharsets.UTF_8));
-        return s.verify(sig);
+    /** Cifra JSON UTF-8 com AES-GCM e envolve a chave com RSA-OAEP(SHA-256). Retorna Base64(bloco). */
+    public String encryptCompact(String jsonUtf8, PublicKey serverPublic) throws Exception {
+        // 1) gera AES-256
+        KeyGenerator kg = KeyGenerator.getInstance("AES");
+        kg.init(AES_BITS, new SecureRandom());
+        SecretKey aes = kg.generateKey();
+
+        // 2) AES-GCM
+        byte[] iv = new byte[GCM_IV_BYTES];
+        new SecureRandom().nextBytes(iv);
+        Cipher gcm = Cipher.getInstance("AES/GCM/NoPadding");
+        gcm.init(Cipher.ENCRYPT_MODE, aes, new GCMParameterSpec(GCM_TAG_BITS, iv));
+        byte[] ct = gcm.doFinal(jsonUtf8.getBytes(StandardCharsets.UTF_8));
+
+        // 3) RSA-OAEP(SHA-256) para envolver a chave AES
+        Cipher rsa = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
+        rsa.init(Cipher.ENCRYPT_MODE, serverPublic, OAEP_SHA256_SHA256);
+        byte[] wrapped = rsa.doFinal(aes.getEncoded());
+
+        // 4) blob = wrapped || iv || ct
+        byte[] blob = new byte[wrapped.length + iv.length + ct.length];
+        System.arraycopy(wrapped, 0, blob, 0, wrapped.length);
+        System.arraycopy(iv, 0, blob, wrapped.length, iv.length);
+        System.arraycopy(ct, 0, blob, wrapped.length + iv.length, ct.length);
+
+        return Base64.getEncoder().encodeToString(blob);
     }
 
-    /** Desencripta envelope compacto: RSA(wrappedKey) || IV(12) || AES-GCM(ciphertext+tag). */
+    /** Desencripta Base64(RSA(wrappedKey)||IV(12)||AES-GCM(ct+tag)). */
     public byte[] decryptCompact(String dataB64, PrivateKey clientPrivate) throws Exception {
         byte[] blob = Base64.getDecoder().decode(dataB64);
 
@@ -89,8 +106,8 @@ public class CtCompactCrypto {
         }
 
         byte[] wrapped = slice(blob, 0, rsaLen);
-        byte[] iv = slice(blob, rsaLen, rsaLen + GCM_IV_BYTES);
-        byte[] ctTag = slice(blob, rsaLen + GCM_IV_BYTES, blob.length);
+        byte[] iv      = slice(blob, rsaLen, rsaLen + GCM_IV_BYTES);
+        byte[] ctTag   = slice(blob, rsaLen + GCM_IV_BYTES, blob.length);
 
         Cipher rsa = Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
         rsa.init(Cipher.DECRYPT_MODE, clientPrivate, OAEP_SHA256_SHA256);
@@ -101,9 +118,33 @@ public class CtCompactCrypto {
         return gcm.doFinal(ctTag);
     }
 
-    /* ===================== GP encrypt/decrypt ===================== */
+    /* ===================== Sign/Verify (sobre a STRING Base64) ===================== */
 
-    /** Cifra valor para guardar em settings (usa AES-GCM com master key em settings). */
+    /** Assina a STRING Base64 (não os bytes decodificados) com SHA256withRSA → retorna Base64(assinatura). */
+    public String signBase64OverString(String dataB64, PrivateKey privateKey) throws Exception {
+        Signature s = Signature.getInstance("SHA256withRSA");
+        s.initSign(privateKey);
+        s.update(dataB64.getBytes(StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(s.sign());
+    }
+
+    /** Alias compatível. */
+    public String signBase64(String dataB64, PrivateKey privateKey) throws Exception {
+        return signBase64OverString(dataB64, privateKey);
+    }
+
+    /** Verifica assinatura (aceita base64/base64url/hex) feita sobre a STRING Base64. */
+    public static boolean verifySignatureOverString(String dataString, String signatureStr, PublicKey ctPublic) throws Exception {
+        byte[] sig = decodeSignatureFlexible(signatureStr);
+        Signature s = Signature.getInstance("SHA256withRSA");
+        s.initVerify(ctPublic);
+        s.update(dataString.getBytes(StandardCharsets.UTF_8));
+        return s.verify(sig);
+    }
+
+    /* ===================== Settings crypto (GP) ===================== */
+
+    /** Cifra valor para guardar em settings (AES-GCM + master key persistida). */
     public String encryptForGP(String plain) {
         if (plain == null || plain.trim().isEmpty()) return "";
         try {
@@ -128,7 +169,7 @@ public class CtCompactCrypto {
         }
     }
 
-    /** Descifra valor guardado por {@link #encryptForGP} ({v1}) e suporta fallback {b64} / plain. */
+    /** Descifra valores guardados por {@link #encryptForGP} ({v1}); suporta {b64} e plain. */
     public String decryptFromGP(String stored) {
         if (stored == null || stored.trim().isEmpty()) return "";
         try {
@@ -159,41 +200,20 @@ public class CtCompactCrypto {
         }
     }
 
-    public String encryptCompact(String jsonUtf8, PublicKey serverPublic) throws Exception {
-        // gerar chave AES-256
-        javax.crypto.KeyGenerator kg = javax.crypto.KeyGenerator.getInstance("AES");
-        kg.init(256, new java.security.SecureRandom());
-        javax.crypto.SecretKey aes = kg.generateKey();
+    /* ===================== Helpers ===================== */
 
-        // cifrar dados com AES-GCM
-        byte[] iv = new byte[12];
-        new java.security.SecureRandom().nextBytes(iv);
-        javax.crypto.Cipher gcm = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
-        gcm.init(javax.crypto.Cipher.ENCRYPT_MODE, aes, new javax.crypto.spec.GCMParameterSpec(128, iv));
-        byte[] ct = gcm.doFinal(jsonUtf8.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    /** Constrói diretamente {data, signature} a partir de JSON claro e PEMs. */
+    public EncryptedRequestDTO buildEncryptedEnvelope(String clearJson, String ctPubPem, String apiPrvPem) throws Exception {
+        if (ctPubPem == null || apiPrvPem == null) {
+            throw new IllegalStateException("Chaves ausentes (CT public ou API private)");
+        }
+        PublicKey  ctPublic   = readPublicKeyPem(ctPubPem);
+        PrivateKey apiPrivate = readPrivateKeyPem(apiPrvPem);
 
-        // envolver chave AES com RSA-OAEP SHA-256
-        javax.crypto.Cipher rsa = javax.crypto.Cipher.getInstance("RSA/ECB/OAEPWithSHA-256AndMGF1Padding");
-        rsa.init(javax.crypto.Cipher.ENCRYPT_MODE, serverPublic, OAEP_SHA256_SHA256);
-        byte[] wrapped = rsa.doFinal(aes.getEncoded());
-
-        // blob = wrapped || iv || ct
-        byte[] blob = new byte[wrapped.length + iv.length + ct.length];
-        System.arraycopy(wrapped, 0, blob, 0, wrapped.length);
-        System.arraycopy(iv, 0, blob, wrapped.length, iv.length);
-        System.arraycopy(ct, 0, blob, wrapped.length + iv.length, ct.length);
-
-        return java.util.Base64.getEncoder().encodeToString(blob);
+        String dataB64 = encryptCompact(clearJson, ctPublic);
+        String sigB64  = signBase64OverString(dataB64, apiPrivate);
+        return new EncryptedRequestDTO(dataB64, sigB64);
     }
-
-    /** Assina a STRING base64 (não os bytes decodificados), SHA256withRSA → Base64 */
-    public String signBase64(String dataB64, PrivateKey privateKey) throws Exception {
-        java.security.Signature s = java.security.Signature.getInstance("SHA256withRSA");
-        s.initSign(privateKey);
-        s.update(dataB64.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        return java.util.Base64.getEncoder().encodeToString(s.sign());
-    }
-    /* ===================== internals ===================== */
 
     private static byte[] slice(byte[] a, int from, int to) {
         int len = to - from;
@@ -202,23 +222,41 @@ public class CtCompactCrypto {
         return out;
     }
 
-    private volatile SecretKey cachedMaster; // evita hits no DB no hot path
+    /** base64 → base64url → hex (tolerante) */
+    private static byte[] decodeSignatureFlexible(String s) {
+        try {
+            return Base64.getDecoder().decode(s);
+        } catch (IllegalArgumentException e1) {
+            try {
+                return Base64.getUrlDecoder().decode(s);
+            } catch (IllegalArgumentException e2) {
+                String t = s.replaceAll("\\s+", "");
+                if (t.length() % 2 != 0) throw new IllegalArgumentException("Odd-length hex signature");
+                byte[] out = new byte[t.length() / 2];
+                for (int i = 0; i < out.length; i++) {
+                    out[i] = (byte) Integer.parseInt(t.substring(2 * i, 2 * i + 2), 16);
+                }
+                return out;
+            }
+        }
+    }
 
-    /** Carrega do settings ou cria uma nova (e persiste) no 1º uso. */
+    /* ===== Master key cache ===== */
+
+    private volatile SecretKey cachedMaster;
+
+    /** Carrega do settings ou cria e persiste (AES-256) no primeiro uso. */
     private synchronized SecretKey loadOrCreateMasterKey() {
         if (cachedMaster != null) return cachedMaster;
 
-        // tenta carregar do settings (cacheado pelo SettingService)
         String b64 = settings.get(CT_KMS_MASTER_KEY_B64, null);
         try {
             if (b64 == null || b64.trim().isEmpty()) {
-                // cria 256-bit nova e persiste
                 KeyGenerator kg = KeyGenerator.getInstance("AES");
                 kg.init(AES_BITS, new SecureRandom());
                 SecretKey key = kg.generateKey();
                 String enc = Base64.getEncoder().encodeToString(key.getEncoded());
 
-                // guarda no settings e invalida cache global se necessário
                 settings.upsert(CT_KMS_MASTER_KEY_B64, enc, "SECRET",
                         "Master key (AES-256) para cifrar valores de settings", true, "system");
 
@@ -230,45 +268,7 @@ public class CtCompactCrypto {
                 return cachedMaster;
             }
         } catch (GeneralSecurityException | IllegalArgumentException e) {
-            return null; // o chamador fará fallback {b64}
+            return null;
         }
-    }
-
-    private static byte[] decodeSignatureFlexible(String s) {
-        try { return java.util.Base64.getDecoder().decode(s); }
-        catch (IllegalArgumentException e1) {
-            try { return java.util.Base64.getUrlDecoder().decode(s); }
-            catch (IllegalArgumentException e2) {
-                String t = s.replaceAll("\\s+", "");
-                if (t.length() % 2 != 0) throw new IllegalArgumentException("Odd-length hex signature");
-                byte[] out = new byte[t.length() / 2];
-                for (int i = 0; i < out.length; i++) {
-                    out[i] = (byte) Integer.parseInt(t.substring(2*i, 2*i+2), 16);
-                }
-                return out;
-            }
-        }
-    }
-
-    public static boolean verifySignatureOverString(String dataString, String signatureStr,
-                                                    java.security.PublicKey ctPublic) throws Exception {
-        byte[] sig = decodeSignatureFlexible(signatureStr);
-        java.security.Signature s = java.security.Signature.getInstance("SHA256withRSA");
-        s.initVerify(ctPublic);
-        s.update(dataString.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        return s.verify(sig);
-    }
-
-    public EncryptedRequestDTO buildEncryptedEnvelope(Map<String, Object> clear, String ctPubPem, String apiPrvPem, String json) throws Exception {
-        if (ctPubPem == null || apiPrvPem == null) {
-            throw new IllegalStateException("Chaves ausentes (CT public ou API private)");
-        }
-        PublicKey  ctPublic   = readPublicKeyPem(ctPubPem);
-        PrivateKey apiPrivate = readPrivateKeyPem(apiPrvPem);
-
-        String dataB64 = encryptCompact(json, ctPublic);         // cifra
-        String sigB64  = signBase64(dataB64, apiPrivate);        // assina (sobre a string base64)
-
-        return new EncryptedRequestDTO(dataB64, sigB64);                 // só {data, signature}
     }
 }
