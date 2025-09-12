@@ -24,7 +24,6 @@ import mz.org.csaude.sespcet.api.service.RespostaService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PRIVATE_PEM;
@@ -69,7 +68,7 @@ public class RespostaController extends BaseController {
 
                         // Cria envelope encriptado e assinado
                         return ctCompactCrypto.buildEncryptedEnvelope(
-                                Map.of("respostaId", resposta.getRespostaIdCt()), // metadados adicionais
+                                // metadados adicionais
                                 clientPublicKey,
                                 apiPrivateKey,
                                 resposta.getPayload()

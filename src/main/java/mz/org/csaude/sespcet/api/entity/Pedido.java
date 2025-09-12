@@ -16,7 +16,7 @@ import java.util.Date;
 public class Pedido extends BaseEntity {
 
     @Column(nullable = false, name = "pedido_id_ct")
-    private String pedidoIdCt;
+    private Long pedidoIdCt;
 
     @Column(nullable = false, name = "facility_code")
     private String facilityCode;

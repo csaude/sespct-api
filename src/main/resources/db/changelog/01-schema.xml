@@ -162,6 +162,101 @@
             </column>
         </createTable>
     </changeSet>
+    <changeSet id="2025-09-05-01-pedidos-pedido-id-to-bigint" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="pedidos"/>
+            <columnExists tableName="pedidos" columnName="pedido_id_ct"/>
+        </preConditions>
+        <modifyDataType tableName="pedidos"
+                        columnName="pedido_id_ct"
+                        newDataType="BIGINT"/>
+    </changeSet>
+
+    <!-- UNIQUE em pedidos.pedido_id_ct -->
+    <changeSet id="2025-09-05-02-pedidos-uk-pedido-id-ct" author="voloide">
+        <addUniqueConstraint tableName="pedidos"
+                             columnNames="pedido_id_ct"
+                             constraintName="uk_pedidos_pedido_id_ct"/>
+    </changeSet>
+
+    <!-- respostas.resposta_id_ct e respostas.pedido_id_ct -> BIGINT -->
+    <changeSet id="2025-09-05-03-respostas-ids-to-bigint" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="respostas"/>
+        </preConditions>
+
+        <modifyDataType tableName="respostas"
+                        columnName="resposta_id_ct"
+                        newDataType="BIGINT"/>
+
+        <modifyDataType tableName="respostas"
+                        columnName="pedido_id_ct"
+                        newDataType="BIGINT"/>
+    </changeSet>
+
+    <!-- UNIQUE em respostas.resposta_id_ct e índice por pedido_id_ct -->
+    <changeSet id="2025-09-05-04-respostas-constraints-index" author="voloide">
+        <addUniqueConstraint tableName="respostas"
+                             columnNames="resposta_id_ct"
+                             constraintName="uk_respostas_resposta_id_ct"/>
+
+        <createIndex tableName="respostas"
+                     indexName="idx_respostas_pedido_id_ct">
+            <column name="pedido_id_ct"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="2025-09-05-uuid-01-add-col-pedidos" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="pedidos"/>
+        </preConditions>
+        <!-- VARCHAR(36) to hold UUID string -->
+        <addColumn tableName="pedidos">
+            <column name="uuid" type="VARCHAR(36)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="2025-09-05-uuid-03-constraints-pedidos" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="pedidos" columnName="uuid"/>
+        </preConditions>
+        <addNotNullConstraint tableName="pedidos"
+                              columnName="uuid"
+                              columnDataType="VARCHAR(36)"/>
+        <addUniqueConstraint tableName="pedidos"
+                             columnNames="uuid"
+                             constraintName="uk_pedidos_uuid"/>
+        <createIndex tableName="pedidos" indexName="idx_pedidos_uuid">
+            <column name="uuid"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- ========= respostas.uuid ========= -->
+
+    <changeSet id="2025-09-05-uuid-04-add-col-respostas" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <tableExists tableName="respostas"/>
+        </preConditions>
+        <addColumn tableName="respostas">
+            <column name="uuid" type="VARCHAR(36)"/>
+        </addColumn>
+    </changeSet>
+
+
+    <changeSet id="2025-09-05-uuid-06-constraints-respostas" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <columnExists tableName="respostas" columnName="uuid"/>
+        </preConditions>
+        <addNotNullConstraint tableName="respostas"
+                              columnName="uuid"
+                              columnDataType="VARCHAR(36)"/>
+        <addUniqueConstraint tableName="respostas"
+                             columnNames="uuid"
+                             constraintName="uk_respostas_uuid"/>
+        <createIndex tableName="respostas" indexName="idx_respostas_uuid">
+            <column name="uuid"/>
+        </createIndex>
+    </changeSet>
 
     <changeSet id="create-client-table" author="jnmabjaia">
         <createTable tableName="clients">

@@ -16,10 +16,10 @@ import java.util.Date;
 public class Resposta extends BaseEntity {
 
     @Column(nullable = false, name = "resposta_id_ct")
-    private String respostaIdCt;
+    private Long respostaIdCt;
 
     @Column(nullable = false, name = "pedido_id_ct")
-    private String pedidoIdCt;
+    private Long pedidoIdCt;
 
     @Column(nullable = false, name = "facility_code")
     private String facilityCode;

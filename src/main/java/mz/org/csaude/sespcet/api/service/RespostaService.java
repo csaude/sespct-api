@@ -25,7 +25,7 @@ public class RespostaService {
         return respostaRepository.findByStatusAndFacilityCode(Resposta.Status.NEW, facilityCode, pageable);
     }
 
-    public Resposta findByCtId(String respostaIdCt, String facilityCode) {
+    public Resposta findByCtId(Long respostaIdCt, String facilityCode) {
         return respostaRepository.findByRespostaIdCtAndFacilityCode(respostaIdCt, facilityCode);
     }
 

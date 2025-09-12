@@ -29,7 +29,6 @@ import mz.org.csaude.sespcet.api.service.PedidoService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PRIVATE_PEM;
@@ -69,7 +68,6 @@ public class PedidoController extends BaseController {
                         // Chave privada da nossa API
                         String apiPrivateKey = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
                         return ctCompactCrypto.buildEncryptedEnvelope(
-                                Map.of("pedidoId", pedido.getPedidoIdCt()),
                                 clientPublicKey,
                                 apiPrivateKey,
                                 pedido.getPayload()
