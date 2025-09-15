@@ -61,4 +61,4 @@ sespct:
     zone: "Africa/Maputo"  # timezone local
     limit: 20              # itens por página
     respostas:
-      cron: "0 0/5 * * * ?"
+      cron: "0 0 13 * * ?"
