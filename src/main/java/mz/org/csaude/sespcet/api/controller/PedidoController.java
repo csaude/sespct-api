@@ -1,5 +1,6 @@
 package mz.org.csaude.sespcet.api.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.data.model.Page;
 import io.micronaut.data.model.Pageable;
@@ -22,12 +23,14 @@ import mz.org.csaude.sespcet.api.api.response.SuccessResponse;
 import mz.org.csaude.sespcet.api.base.BaseController;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
 import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
+import mz.org.csaude.sespcet.api.dto.PedidoDTO;
 import mz.org.csaude.sespcet.api.entity.Client;
 import mz.org.csaude.sespcet.api.entity.Pedido;
 import mz.org.csaude.sespcet.api.service.ClientService;
 import mz.org.csaude.sespcet.api.service.PedidoService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -53,41 +56,42 @@ public class PedidoController extends BaseController {
     @ApiResponse(responseCode = "200", description = "Pedidos retrieved successfully")
     @Get("/")
     public HttpResponse<?> listNewPedidos(@Nullable Pageable pageable,
-                                          Authentication authentication) { // Mais tarde iremos encontrar o uclientId em authentication
+                                          Authentication authentication) {
+
         Page<Pedido> pedidos = pedidoService.getNewPedidos(pageable != null ? pageable : Pageable.from(0, 200));
 
-        String clientId = authentication.getName().toString(); // Mais tarde mudar para authentication.getClientId().toString()
+        String clientId = authentication.getName(); // Mais tarde: authentication.getClientId().toString()
         Client client = clientService.findByClientId(clientId)
                 .orElseThrow(() -> new HttpStatusException(HttpStatus.NOT_FOUND, "Cliente não encontrado"));
 
-        List<EncryptedRequestDTO> pedidoDTOs = pedidos.getContent().stream()
-                .map(pedido -> {
-                    try {
-                        // Chave pública do cliente correspondente
-                        String clientPublicKey = client.getPublicKey();
-                        // Chave privada da nossa API
-                        String apiPrivateKey = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
-                        return ctCompactCrypto.buildEncryptedEnvelope(
-                                clientPublicKey,
-                                apiPrivateKey,
-                                pedido.getPayload()
-                        );
-                    } catch (Exception e) {
-                        throw new RuntimeException("Erro ao cifrar pedido " + pedido.getPedidoIdCt(), e);
-                    }
-                })
+        // Transformar cada Pedido em PedidoDTO
+        List<PedidoDTO> pedidoDTOs = pedidos.getContent().stream()
+                .map(PedidoDTO::new)
                 .collect(Collectors.toList());
 
-        String message = pedidos.getTotalSize() == 0 ? "Sem Dados para esta pesquisa" : "Dados encontrados";
+        // Serializar a lista de DTOs para JSON
+        String pedidosJson = null;
+        try {
 
-        return HttpResponse.ok(
-                PaginatedResponse.of(
-                        pedidoDTOs,
-                        pedidos.getTotalSize(),
-                        pedidos.getPageable(),
-                        message
-                )
-        );
+
+            String message = pedidos.getTotalSize() == 0 ? "Sem Dados para esta pesquisa" : "Dados encontrados";
+            ObjectMapper objectMapper = new ObjectMapper();
+            pedidosJson = objectMapper.writeValueAsString(PaginatedResponse.of(
+                    Collections.singletonList(pedidos),
+                    pedidos.getTotalSize(),
+                    pedidos.getPageable(),
+                    message
+            ));
+            EncryptedRequestDTO encryptedPedidos = ctCompactCrypto.buildEncryptedEnvelope(
+                    pedidosJson,
+                    client.getPublicKey(),
+                    settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null)
+            );
+            return HttpResponse.ok(encryptedPedidos);
+        } catch (Exception e) {
+            throw new RuntimeException("Erro ao serializar pedidos", e);
+        }
+
     }
 
     @Post("/mark-consumed")

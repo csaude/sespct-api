@@ -4,6 +4,8 @@ import io.micronaut.http.HttpResponse;
 import io.micronaut.http.annotation.Body;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Post;
+import io.micronaut.security.annotation.Secured;
+import io.micronaut.security.rules.SecurityRule;
 import jakarta.inject.Inject;
 import mz.org.csaude.sespcet.api.api.RESTAPIMapping;
 import mz.org.csaude.sespcet.api.api.response.SuccessResponse;
@@ -16,6 +18,7 @@ import mz.org.csaude.sespcet.api.service.SettingService;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.CT_KEYS_SESPCTAPI_PUBLIC_PEM;
 
+@Secured(SecurityRule.IS_ANONYMOUS)
 @Controller(RESTAPIMapping.CLIENT_CONTROLLER)
 public class ClientController extends BaseController {
 
@@ -25,6 +28,7 @@ public class ClientController extends BaseController {
     @Inject
     private SettingService settings;
 
+    @Secured(SecurityRule.IS_ANONYMOUS)
     @Post
     public HttpResponse<?> register(@Body ClientRegisterDTO dto) {
         Client createdClient = clientService.register(dto);
