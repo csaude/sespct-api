@@ -1,4 +1,3 @@
-// src/main/java/mz/org/csaude/sespcet/api/jobs/EctDailySyncJob.java
 package mz.org.csaude.sespcet.api.jobs;
 
 import io.micronaut.scheduling.annotation.Scheduled;

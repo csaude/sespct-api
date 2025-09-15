@@ -5,7 +5,9 @@ import jakarta.inject.Singleton;
 import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import mz.org.csaude.sespcet.api.entity.Pedido;
+import mz.org.csaude.sespcet.api.entity.Resposta;
 import mz.org.csaude.sespcet.api.repository.PedidoRepository;
+import mz.org.csaude.sespcet.api.repository.RespostaRepository;
 import mz.org.csaude.sespcet.api.util.DateUtils;
 import mz.org.csaude.sespcet.api.util.LifeCycleStatus;
 
@@ -22,17 +24,20 @@ public class EctSyncService {
     private final EctApiClient ect;
     private final JsonMapper json;
     private final PedidoRepository pedidoRepo;
+    private final RespostaRepository respostaRepo;
     private final SettingService settings;
     private final EctWebhookService webhook;
 
     public EctSyncService(EctApiClient ect,
                           JsonMapper json,
                           PedidoRepository pedidoRepo,
+                          RespostaRepository respostaRepo,
                           SettingService settings,
                           EctWebhookService webhook) {
         this.ect = ect;
         this.json = json;
         this.pedidoRepo = pedidoRepo;
+        this.respostaRepo = respostaRepo;
         this.settings = settings;
         this.webhook = webhook;
     }
@@ -148,6 +153,133 @@ public class EctSyncService {
         }
     }
 
+    /**
+     * Busca respostas no eCT via pageRespostas e grava/actualiza a entidade Resposta.
+     * Se {@code pedidoIdsFilter} for não-vazio, filtra por esses pedidos; caso contrário traz todas.
+     * Retorna a lista (distinct) de pedidoIds para os quais gravou respostas neste ciclo.
+     */
+    @Transactional
+    public List<Long> syncRespostas(Integer limit,
+                                    String startCursor,
+                                    String direction,
+                                    Collection<Long> pedidoIdsFilter) {
+        final String dir = (direction == null || direction.isBlank()) ? "next" : direction;
+        String cursor = (startCursor != null && !startCursor.isBlank()) ? startCursor : null;
+        final String initialCursor = cursor; // para comparação no fim
+        String lastNextCursor = null;        // será guardado no fim, se houver
+
+        int page = 0;
+        final Set<Long> touchedPedidoIds = new LinkedHashSet<>();
+
+        while (true) {
+            page++;
+            try {
+                EctApiClient.Page pageResp;
+                if (pedidoIdsFilter != null && !pedidoIdsFilter.isEmpty()) {
+                    pageResp = ect.pageRespostasByPedidoIds(pedidoIdsFilter, limit != null ? limit : 20, cursor, dir);
+                } else {
+                    pageResp = ect.pageRespostas(limit != null ? limit : 20, cursor, dir, Collections.emptyMap());
+                }
+
+                List<Map<String, Object>> items = pageResp.items();
+                if (items == null || items.isEmpty()) {
+                    log.info("Respostas: página {} vazia, terminando.", page);
+                    break;
+                }
+
+                int processed = 0;
+                for (Map<String, Object> it : items) {
+                    Map<String, Object> dadosResposta = asMap(firstNonNull(it.get("dadosResposta"), it));
+                    if (dadosResposta == null) continue;
+
+                    String payload = mapToJson(it);
+                    Long pedidoId = processResposta(dadosResposta, payload);
+                    if (pedidoId != null) {
+                        touchedPedidoIds.add(pedidoId);
+                        processed++;
+                    }
+                }
+
+                log.info("Respostas: página {} → processadas {}", page, processed);
+
+                String next = str(pageResp.nextCursor());
+                Boolean hasMore = pageResp.hasMore();
+                if (Boolean.FALSE.equals(hasMore) || next == null || next.isBlank()) {
+                    log.info("Respostas: fim (hasMore={}, next='{}') — pedidos tocados {}", hasMore, next, touchedPedidoIds.size());
+                    break;
+                }
+                // avança o cursor local e memoriza para persistir no fim
+                cursor = next;
+                lastNextCursor = next;
+
+            } catch (Exception e) {
+                log.warn("Respostas: falha na página {} (cursor={}) → {}", page, cursor, e.toString());
+                break;
+            }
+
+            if (page >= 200) {
+                log.warn("Respostas: limite de páginas atingido ({}). Parando.", page);
+                break;
+            }
+        }
+
+        // >>> Persistir cursor NO FIM do sync (conforme solicitado)
+        try {
+            if (lastNextCursor != null && !lastNextCursor.equals(initialCursor)) {
+                settings.upsert(
+                        CT_SYNC_RESPOSTAS_CURSOR,
+                        lastNextCursor,
+                        "STRING",
+                        "Último cursor de sync (respostas eCT)",
+                        true,
+                        "system"
+                );
+                log.info("Respostas: cursor actualizado para '{}'", lastNextCursor);
+            } else {
+                log.info("Respostas: cursor inalterado (permanece '{}')", initialCursor);
+            }
+        } catch (Exception e) {
+            log.warn("Respostas: falha ao persistir cursor '{}': {}", lastNextCursor, e.toString());
+        }
+
+        return new ArrayList<>(touchedPedidoIds);
+    }
+
+
+    /* ---------------- salvar Resposta (conforme solicitado) ---------------- */
+
+    private Long processResposta(Map<String, Object> resposta, String payload) {
+        if (resposta == null) throw new IllegalStateException("Resposta nula");
+
+        Long respostaId = toLong(str(path(resposta, "metadados", "respostaId"),
+                path(resposta, "respostaId")));
+        Long pedidoId   = toLong(str(path(resposta, "metadados", "pedidoId"),
+                path(resposta, "pedidoId")));
+
+        if (respostaId == null) throw new IllegalStateException("Resposta sem respostaId");
+        if (pedidoId == null)   throw new IllegalStateException("Resposta sem pedidoId");
+
+        Resposta r = respostaRepo.findByRespostaIdCt(respostaId).orElseGet(Resposta::new);
+        r.setRespostaIdCt(respostaId);
+        r.setPedidoIdCt(pedidoId);
+        r.setPayload(payload);
+        r.setStatus(Resposta.Status.NEW);
+        r.setLifeCycleStatus(LifeCycleStatus.ACTIVE);
+        r.setCreatedAt(DateUtils.getCurrentDate());
+        r.setCreatedBy("system");
+
+        // herda facility do Pedido (se existir)
+        String facility = pedidoRepo.findByPedidoIdCt(pedidoId)
+                .map(Pedido::getFacilityCode)
+                .orElse("UNKNOWN");
+        r.setFacilityCode(facility);
+
+        respostaRepo.save(r);
+
+        log.info("Resposta {} (pedido {}) gravada/atualizada", respostaId, pedidoId);
+        return pedidoId;
+    }
+
     /* ---------------- helpers ---------------- */
 
     private String mapToJson(Object obj) throws Exception {
@@ -200,6 +332,13 @@ public class EctSyncService {
                 if (!s.isEmpty() && s.matches("\\d+")) return Long.parseLong(s);
             }
         }
+        return null;
+    }
+
+    private static Long toLong(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        if (t.matches("\\d+")) return Long.parseLong(t);
         return null;
     }
 }

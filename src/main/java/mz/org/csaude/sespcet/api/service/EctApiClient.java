@@ -34,6 +34,8 @@ public class EctApiClient {
         this.crypto = crypto;
     }
 
+    /** --------- PEDIDOS --------- */
+
     /** Chama POST /api/v1/pedido-troca-linhas/cursor-pagination com paginação por cursor no corpo. Retorna JSON claro. */
     public String cursorPedidos(Integer limit, String cursor, String direction, Map<String, Object> criteria) throws Exception {
         if (criteria == null) criteria = java.util.Collections.emptyMap();
@@ -109,12 +111,120 @@ public class EctApiClient {
         return new Page(items != null ? items : java.util.Collections.emptyList(), next, hasMore);
     }
 
+    /** --------- RESPOSTAS --------- */
+
+    /** Chama POST /api/v1/pedido-troca-linhas-respostas/cursor-pagination com paginação por cursor no corpo. Retorna JSON claro. */
+    public String cursorRespostas(Integer limit, String cursor, String direction, Map<String, Object> criteria) throws Exception {
+        if (criteria == null) criteria = java.util.Collections.emptyMap();
+
+        final java.util.Map<String, Object> cursorObj = new java.util.HashMap<>();
+        if (limit != null)     cursorObj.put("limit", limit);
+        cursorObj.put("cursor_type", "id");
+        if (direction != null) cursorObj.put("direction", direction);
+        if (cursor != null)    cursorObj.put("after", cursor);
+
+        final java.util.Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("cursor", cursorObj);
+        payload.put("criteria", criteria); // ex.: {"pedidoIds":[...]} ou outros filtros suportados
+
+        String clearJson = new String(json.writeValueAsBytes(payload), StandardCharsets.UTF_8);
+        String ctPubPem  = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
+        String apiPrvPem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
+        EncryptedRequestDTO body = crypto.buildEncryptedEnvelope(clearJson, ctPubPem, apiPrvPem);
+
+        URI uri = base().path("/api/v1/pedido-troca-linhas-respostas/cursor-pagination").build();
+        HttpRequest<EncryptedRequestDTO> req = HttpRequest.POST(uri, body)
+                .contentType(MediaType.APPLICATION_JSON_TYPE)
+                .accept(MediaType.APPLICATION_JSON_TYPE);
+
+        EncryptedRequestDTO env = http.toBlocking().retrieve(req, Argument.of(EncryptedRequestDTO.class));
+
+        PublicKey  ctPublic   = crypto.readPublicKeyPem(ctPubPem);
+        PrivateKey apiPrivate = crypto.readPrivateKeyPem(apiPrvPem);
+        if (!CtCompactCrypto.verifySignatureOverString(env.data(), env.signature(), ctPublic)) {
+            throw new IllegalStateException("Invalid server signature");
+        }
+        byte[] clear = crypto.decryptCompact(env.data(), apiPrivate);
+        return new String(clear, StandardCharsets.UTF_8);
+    }
+
+    /** Igual ao cursorRespostas, mas já devolve itens/next_cursor/has_more parseados. */
+    public Page pageRespostas(Integer limit, String cursor, String direction, Map<String, Object> criteria) throws Exception {
+        String clearJson = cursorRespostas(limit, cursor, direction, criteria);
+
+        Map<String, Object> root = json.readValue(
+                clearJson.getBytes(StandardCharsets.UTF_8),
+                Argument.mapOf(String.class, Object.class)
+        );
+
+        // Pode ser: root.get("data") == List (como no teu exemplo), ou um objeto com "data" dentro
+        Object d = firstNonNull(root.get("data"), root.get("content"), root);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = null;
+        if (d instanceof Map) {
+            items = asListOfMaps(((Map<?, ?>) d).get("data"));
+        }
+        if (items == null && d instanceof List) {
+            items = asListOfMaps(d); // <== caso do exemplo (data é array na raiz)
+        }
+        if (items == null) {
+            items = asListOfMaps(root.get("data")); // fallback explícito
+        }
+        if (items == null) {
+            items = asListOfMaps(firstNonNull(root.get("items"), root.get("results")));
+        }
+
+        // nextCursor priorizando "pagination.next_cursor"
+        String next = str(
+                // preferido no novo payload:
+                path(root, "pagination", "next_cursor"),
+                // variantes comuns:
+                path(root, "pagination", "nextCursor"),
+                (d instanceof Map ? path(d, "pagination", "next_cursor") : null),
+                (d instanceof Map ? path(d, "next_cursor") : null),
+                root.get("nextCursor"),
+                path(root, "meta", "next_cursor")
+        );
+
+        // hasMore: no novo payload é "pagination.has_next"
+        Boolean hasMore = bool(
+                path(root, "pagination", "has_next"),
+                // variantes/legados:
+                path(root, "pagination", "has_more"),
+                (d instanceof Map ? path(d, "pagination", "has_next") : null),
+                (d instanceof Map ? path(d, "pagination", "has_more") : null),
+                path(root, "has_next"),
+                path(root, "has_more")
+        );
+        if (hasMore == null) {
+            // heurística: se existe next_cursor, assume que há mais
+            hasMore = (next != null && !next.trim().isEmpty());
+        }
+
+        return new Page(items != null ? items : java.util.Collections.emptyList(), next, hasMore);
+    }
+
+
+    /** Atalho: pagina respostas filtrando por uma lista de pedidoIds. */
+    public Page pageRespostasByPedidoIds(Collection<Long> pedidoIds,
+                                         Integer limit,
+                                         String cursor,
+                                         String direction) throws Exception {
+        Map<String, Object> criteria = new HashMap<>();
+        if (pedidoIds != null && !pedidoIds.isEmpty()) {
+            criteria.put("pedidoIds", new ArrayList<>(new LinkedHashSet<>(pedidoIds)));
+        }
+        return pageRespostas(limit, cursor, direction, criteria);
+    }
+
+    /* ---------------- base e helpers ---------------- */
+
     private UriBuilder base() {
         String base = settings.get(CT_BASE_URL, "https://api.comitetarvmisau.co.mz");
         return UriBuilder.of(base);
     }
 
-    /* ------------ helpers de parsing locais ------------ */
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> asListOfMaps(Object o) {
         if (!(o instanceof List<?> list)) return null;

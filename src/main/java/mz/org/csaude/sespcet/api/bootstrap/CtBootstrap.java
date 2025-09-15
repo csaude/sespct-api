@@ -270,6 +270,19 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         if (settings.get(CT_SYNC_PAGE_LIMIT, null) == null) {
             settings.upsert(CT_SYNC_PAGE_LIMIT, "20", "INTEGER", "Itens por página no fetch eCT", true, "system");
         }
+        // default: job de respostas ativo
+        if (settings.get(CT_SYNC_RESPOSTAS_ENABLED, null) == null) {
+            settings.upsert(CT_SYNC_RESPOSTAS_ENABLED, "true",
+                    "BOOLEAN", "Backfill de respostas ativo", true, "system");
+        }
+
+        // apenas informativo; o agendamento real vem da anotação @Scheduled
+        String respostasCron = env.getProperty("sespct.sync.respostas.cron", String.class, "0 0 13 * * ?");
+        if (settings.get(CT_SYNC_RESPOSTAS_CRON, null) == null) {
+            settings.upsert(CT_SYNC_RESPOSTAS_CRON, respostasCron,
+                    "STRING", "CRON configurado para o job de respostas", true, "system");
+        }
+
     }
 
     /* -------------------- helpers -------------------- */
