@@ -1,10 +1,12 @@
 package mz.org.csaude.sespcet.api.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.micronaut.serde.annotation.Serdeable;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 import mz.org.csaude.sespcet.api.base.BaseEntity;
+import mz.org.csaude.sespcet.api.util.LifeCycleStatus;
 
 @Entity
 @Getter
@@ -28,4 +30,10 @@ public class Client extends BaseEntity {
 
     @Column(nullable = false, name = "salt")
     private String salt;
+
+    @JsonIgnore
+    public boolean isActive() {
+        final LifeCycleStatus lcs = getLifeCycleStatus();
+        return lcs == LifeCycleStatus.ACTIVE;
+    }
 }

@@ -21,6 +21,11 @@ public class ClientService {
     }
 
     @Transactional
+    public Optional<Client> getGraphByClientId(String identity) {
+        return clientRepository.findByClientId(identity);
+    }
+
+    @Transactional
     public Client register(ClientRegisterDTO dto) {
         Client client = new Client();
 
