@@ -1,16 +1,76 @@
-<configuration>
+<configuration scan="true">
+    <!-- ========= Properties ========= -->
+    <property name="APP_NAME" value="sespct-api"/>
+    <property name="LOG_PATH" value="${LOG_PATH:-logs}"/>
+    <property name="ROOT_LOG_LEVEL" value="${ROOT_LOG_LEVEL:-INFO}"/>
 
+    <!-- Propagate SLF4J levels to java.util.logging -->
     <contextListener class="ch.qos.logback.classic.jul.LevelChangePropagator"/>
+
+    <!-- ========= Console (color) ========= -->
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <!-- encoders are assigned the type
-             ch.qos.logback.classic.encoder.PatternLayoutEncoder by default -->
         <encoder>
-            <pattern>%cyan(%d{HH:mm:ss.SSS}) %gray([%thread]) %highlight(%-5level) %magenta(%logger{36}) - %msg%n
+            <pattern>
+                %cyan(%d{HH:mm:ss.SSS}) %gray([%thread]) %highlight(%-5level) %magenta(%logger{36})
+                - %msg%n
             </pattern>
         </encoder>
     </appender>
 
-    <root level="info">
+    <!-- Async wrapper for console to avoid blocking on I/O -->
+    <appender name="ASYNC_STDOUT" class="ch.qos.logback.classic.AsyncAppender">
         <appender-ref ref="STDOUT"/>
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <!-- ========= Rolling File ========= -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/${APP_NAME}.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+
+        <!-- Daily roll with size cap per day -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- e.g. logs/sespct-api.2025-09-15.0.log, .1.log, ... -->
+            <fileNamePattern>${LOG_PATH}/${APP_NAME}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>14</maxHistory>          <!-- keep 14 days -->
+            <totalSizeCap>2GB</totalSizeCap>     <!-- safety net -->
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Async wrapper for file -->
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="FILE"/>
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <neverBlock>true</neverBlock>
+    </appender>
+
+    <!-- ========= Per-package log levels (tweak as needed) ========= -->
+    <!-- Your app (a bit more chatty while developing) -->
+    <logger name="mz.org.csaude.sespcet" level="${APP_LOG_LEVEL:-DEBUG}" additivity="false">
+        <appender-ref ref="ASYNC_STDOUT"/>
+        <appender-ref ref="ASYNC_FILE"/>
+    </logger>
+
+    <!-- Micronaut HTTP, Scheduling -->
+    <logger name="io.micronaut.http" level="INFO"/>
+    <logger name="io.micronaut.scheduling" level="INFO"/>
+
+    <!-- Quiet down noisy libs -->
+    <logger name="io.netty" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="org.hibernate.SQL" level="WARN"/>
+    <logger name="org.hibernate.type.descriptor.sql.BasicBinder" level="WARN"/>
+
+    <!-- ========= Root ========= -->
+    <root level="${ROOT_LOG_LEVEL}">
+        <appender-ref ref="ASYNC_STDOUT"/>
+        <appender-ref ref="ASYNC_FILE"/>
     </root>
 </configuration>

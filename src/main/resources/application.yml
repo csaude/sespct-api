@@ -57,6 +57,8 @@ sespct:
       enabled: true
   sync:
     enabled: true          # pode desligar sem recompilar
-    cron: "0 0/5 * * * ?"    # todos os dias às 02:05
+    cron: "0 0 13 * * ?"    # todos os dias às 02:05
     zone: "Africa/Maputo"  # timezone local
     limit: 20              # itens por página
+    respostas:
+      cron: "0 0 13 * * ?"

@@ -57,4 +57,8 @@ public final class SettingKeys {
     public static final String SESPCT_API_BASE_URL           = "sespct.api.baseUrl";
     public static final String CT_ENDPOINT_RESPOSTAS_CONSUMED = "sesp.ct.endpoints.respostas.consumed";
 
+    public static final String CT_SYNC_RESPOSTAS_ENABLED = "sesp.ct.sync.respostas.enabled"; // boolean
+    public static final String CT_SYNC_RESPOSTAS_CRON    = "sesp.ct.sync.respostas.cron";    // informativo (opcional)
+    public static final String CT_SYNC_RESPOSTAS_CURSOR = "sesp.ct.sync.respostas.cursor";
+
 }
