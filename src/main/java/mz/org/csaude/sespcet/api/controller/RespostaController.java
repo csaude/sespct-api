@@ -11,6 +11,7 @@ import io.micronaut.http.exceptions.HttpStatusException;
 import io.micronaut.security.annotation.Secured;
 import io.micronaut.security.authentication.Authentication;
 import io.micronaut.security.rules.SecurityRule;
+import io.micronaut.serde.annotation.Serdeable;
 import jakarta.inject.Inject;
 import mz.org.csaude.sespcet.api.api.RESTAPIMapping;
 import mz.org.csaude.sespcet.api.api.response.PaginatedResponse;
@@ -25,6 +26,9 @@ import mz.org.csaude.sespcet.api.service.ClientService;
 import mz.org.csaude.sespcet.api.service.RespostaService;
 import mz.org.csaude.sespcet.api.service.SettingService;
 
+import java.nio.charset.StandardCharsets;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -48,17 +52,16 @@ public class RespostaController extends BaseController {
 
     @Get("/")
     public HttpResponse<?> listNewRespostas(@Nullable Pageable pageable,
+                                            @QueryValue(value = "facilityCode", defaultValue = "") String facilityCode,
                                             Authentication authentication) {
-        // 1️⃣ Pegar clientId do Authentication
-        String clientId = authentication.getName(); // Mais tarde: authentication.getClientId().toString()
+        String clientId = authentication.getName();
 
         Client client = clientService.findByClientId(clientId)
                 .orElseThrow(() -> new HttpStatusException(HttpStatus.NOT_FOUND, "Cliente não encontrado"));
 
-        // 2️⃣ Buscar respostas novas paginadas
         Page<Resposta> respostas = respostaService.getNewRespostas(
-                pageable != null ? pageable : Pageable.from(0, 200),
-                clientId
+                facilityCode.isBlank() ? null : facilityCode,
+                pageable != null ? pageable : Pageable.from(0, 200)
         );
 
         // 3️⃣ Transformar em DTOs
@@ -104,13 +107,45 @@ public class RespostaController extends BaseController {
         }
     }
 
+    @Serdeable
+    public record RespostasConsumedDTO(List<String> respostaUuids, String status) {}
 
     @Post("/mark-consumed")
-    public HttpResponse<?> markRespostasConsumed(@Body List<String> respostaUuids, Authentication authentication) {
+    public HttpResponse<?> markRespostasConsumed(@Body EncryptedRequestDTO encryptedRequest,
+                                                 Authentication authentication) {
+        try {
+            // 1️⃣ Validar cliente
+            String clientId = authentication.getName();
+            Client client = clientService.findByClientId(clientId)
+                    .orElseThrow(() -> new HttpStatusException(HttpStatus.NOT_FOUND, "Cliente não encontrado"));
 
-        String username = authentication.getName();
+            // 2️⃣ Preparar chaves
+            String apiPrivatePem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
+            PrivateKey apiPrivate = ctCompactCrypto.readPrivateKeyPem(apiPrivatePem);
+            PublicKey clientPublicKey = ctCompactCrypto.readPublicKeyPem(client.getPublicKey());
 
-        respostaService.markConsumed(respostaUuids);
-        return HttpResponse.ok(SuccessResponse.messageOnly("Respostas marcadas como consumidas com sucesso"));
+            // 3️⃣ Verificar assinatura
+            if (!CtCompactCrypto.verifySignatureOverString(encryptedRequest.data(), encryptedRequest.signature(), clientPublicKey)) {
+                throw new IllegalStateException("Invalid server signature");
+            }
+
+            // 4️⃣ Desencriptar payload
+            byte[] decryptedBytes = ctCompactCrypto.decryptCompact(encryptedRequest.data(), apiPrivate);
+            String clearText = new String(decryptedBytes, StandardCharsets.UTF_8);
+
+            // 5️⃣ Converter JSON em DTO
+            ObjectMapper objectMapper = new ObjectMapper();
+            RespostasConsumedDTO respostasConsumed = objectMapper.readValue(clearText, RespostasConsumedDTO.class);
+
+            // 6️⃣ Marcar como consumidas
+            respostaService.markConsumed(respostasConsumed.respostaUuids());
+
+            return HttpResponse.ok(SuccessResponse.messageOnly("Respostas marcadas como consumidas com sucesso"));
+
+        } catch (Exception e) {
+            e.printStackTrace(); // 👈 manter no debug
+            throw new RuntimeException("Erro ao processar respostas consumidas", e);
+        }
     }
+
 }

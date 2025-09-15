@@ -28,7 +28,6 @@ public class ClientController extends BaseController {
     @Inject
     private SettingService settings;
 
-    @Secured(SecurityRule.IS_ANONYMOUS)
     @Post
     public HttpResponse<?> register(@Body ClientRegisterDTO dto) {
         Client createdClient = clientService.register(dto);

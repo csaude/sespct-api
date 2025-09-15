@@ -4,6 +4,7 @@ import io.micronaut.data.annotation.Repository;
 import io.micronaut.data.jpa.repository.JpaRepository;
 import io.micronaut.data.model.Page;
 import io.micronaut.data.model.Pageable;
+import mz.org.csaude.sespcet.api.entity.Pedido;
 import mz.org.csaude.sespcet.api.entity.Resposta;
 
 import java.util.List;
