@@ -194,17 +194,18 @@
                         newDataType="BIGINT"/>
     </changeSet>
 
-    <!-- UNIQUE em respostas.resposta_id_ct e índice por pedido_id_ct -->
-    <changeSet id="2025-09-05-04-respostas-constraints-index" author="voloide">
-        <addUniqueConstraint tableName="respostas"
-                             columnNames="resposta_id_ct"
-                             constraintName="uk_respostas_resposta_id_ct"/>
-
-        <createIndex tableName="respostas"
-                     indexName="idx_respostas_pedido_id_ct">
+    <!-- manter o índice por pedido_id_ct, mas com proteção para evitar colisão de nome -->
+    <changeSet id="2025-09-15-fix-idx-respostas-pedido-id-ct" author="voloide">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="respostas" indexName="idx_respostas_pedido_id_ct"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="respostas" indexName="idx_respostas_pedido_id_ct">
             <column name="pedido_id_ct"/>
         </createIndex>
     </changeSet>
+
 
     <changeSet id="2025-09-05-uuid-01-add-col-pedidos" author="voloide">
         <preConditions onFail="MARK_RAN">
