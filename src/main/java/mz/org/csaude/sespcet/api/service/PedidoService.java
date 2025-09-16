@@ -21,8 +21,8 @@ public class PedidoService {
         return pedidoRepository.save(pedido);
     }
 
-    public Page<Pedido> getNewPedidos(Pageable pageable) {
-        return pedidoRepository.findByStatus(Pedido.Status.NEW, pageable);
+    public Page<Pedido> getNewPedidos(Pageable pageable, String facilityCode) {
+        return pedidoRepository.findByStatusAndFacilityCode(Pedido.Status.NEW, facilityCode, pageable);
     }
 
     public Pedido findByCtId(long pedidoIdCt, String facilityCode) {

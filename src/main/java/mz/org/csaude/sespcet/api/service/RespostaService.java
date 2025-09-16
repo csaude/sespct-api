@@ -21,12 +21,8 @@ public class RespostaService {
         return respostaRepository.save(resposta);
     }
 
-    public Page<Resposta> getNewRespostas(Pageable pageable, String facilityCode) {
+    public Page<Resposta> getNewRespostas(String facilityCode, Pageable pageable) {
         return respostaRepository.findByStatusAndFacilityCode(Resposta.Status.NEW, facilityCode, pageable);
-    }
-
-    public Resposta findByCtId(Long respostaIdCt, String facilityCode) {
-        return respostaRepository.findByRespostaIdCtAndFacilityCode(respostaIdCt, facilityCode);
     }
 
     public void markConsumed(List<String> respostaUuids) {
