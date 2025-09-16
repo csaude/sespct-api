@@ -134,12 +134,4 @@ public class PedidoController extends BaseController {
         }
     }
 
-
-
-
-//    public HttpResponse<?> markPedidosConsumed(@Body List<String> pedidoUuids) {
-//        pedidoService.markConsumed(pedidoUuids);
-//        return HttpResponse.ok(SuccessResponse.messageOnly(("Pedidos marcados como consumidos com sucesso")));
-//    }
-
 }

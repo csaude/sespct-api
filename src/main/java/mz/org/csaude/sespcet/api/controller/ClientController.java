@@ -33,49 +33,30 @@ public class ClientController extends BaseController {
     @Inject
     private SettingService settings;
 
-    @Inject
-    CtCompactCrypto ctCompactCrypto;
-
     /**
      * Endpoint para registar um novo cliente no sistema.
      * - O cliente envia um objeto ClientRegisterDTO (com seus dados + chave pública).
      * - O sistema regista o cliente na base de dados.
-     * - Retorna uma resposta encriptada com o clientId e a chave pública da API.
+     * - Retorna uma resposta JSON (NÃO encriptada) com o clientId e a chave pública da API.
      */
     @Post
     public HttpResponse<?> register(@Body ClientRegisterDTO dto) {
         try {
-            // 1️⃣ Regista o cliente (salva na base de dados, usando os dados recebidos)
+            // 1️⃣ Regista o cliente na base de dados
             Client createdClient = clientService.register(dto);
 
-            // 2️⃣ Monta a resposta "legível", em JSON
-            // Contém mensagem de sucesso + DTO com clientId e chave pública da API
-            ObjectMapper objectMapper = new ObjectMapper();
-            String clientResponseJSON = objectMapper.writeValueAsString(
+            // 2️⃣ Retorna diretamente uma resposta JSON de sucesso
+            return HttpResponse.created(
                     SuccessResponse.of(
                             "Cliente registado com sucesso",
                             new ClientResponseDTO(
                                     createdClient.getClientId(),
-                                    settings.get(CT_KEYS_SESPCTAPI_PUBLIC_PEM, null)
+                                    settings.get(CT_KEYS_SESPCTAPI_PUBLIC_PEM, null) // Chave pública da API
                             )
                     )
             );
 
-            // 3️⃣ Constrói o envelope encriptado
-            // - Criptografa a resposta JSON usando:
-            //    → a chave pública enviada pelo cliente (dto.publicKey()), garantindo que só ele poderá desencriptar
-            //    → a chave privada da API (assinatura/segurança)
-            EncryptedRequestDTO encryptedResponse = ctCompactCrypto.buildEncryptedEnvelope(
-                    clientResponseJSON,
-                    dto.publicKey(),
-                    settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null)
-            );
-
-            // 4️⃣ Retorna a resposta encriptada (EncryptedRequestDTO)
-            return HttpResponse.created(encryptedResponse);
-
         } catch (Exception e) {
-            // Em caso de erro, encapsula numa RuntimeException
             throw new RuntimeException("Erro ao registar cliente", e);
         }
     }
