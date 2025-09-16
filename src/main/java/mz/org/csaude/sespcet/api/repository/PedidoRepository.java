@@ -16,6 +16,9 @@ public interface PedidoRepository extends JpaRepository<Pedido, Long> {
 
     Pedido findByPedidoIdCtAndFacilityCode(long pedidoIdCt, String facilityCode);
 
+    // Busca por status e opcionalmente por facilityCode
+    Page<Pedido> findByStatusAndFacilityCode(Pedido.Status status, String facilityCode, Pageable pageable);
+
     // Buscar todos os pedidos correspondentes a uma lista de UUIDs
     List<Pedido> findByUuidIn(List<String> uuids);
 

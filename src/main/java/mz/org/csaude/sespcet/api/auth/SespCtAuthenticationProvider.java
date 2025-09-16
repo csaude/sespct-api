@@ -66,7 +66,13 @@ public class SespCtAuthenticationProvider implements ReactiveAuthenticationProvi
                 return;
             }
 
+            // 3) build authorities and attributes
+            Map<String, Object> attributes = buildAuthAttributes(client); // includes roles+groups detail
+
+            LOG.info("User '{}' authenticated successfully", identity);
+            emitter.onNext(AuthenticationResponse.success(identity, attributes));
             emitter.onComplete();
+
         }, BackpressureStrategy.ERROR);
     }
 
