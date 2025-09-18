@@ -93,7 +93,7 @@ public class PedidoController extends BaseController {
 
 
     // DTO auxiliar
-    public record PedidosConsumedDTO(List<String> pedidoIds, String status) {}
+    public record PedidosConsumedDTO(List<String> pedidoUuids, String status) {}
 
 
     @Post("/mark-consumed")
@@ -123,8 +123,8 @@ public class PedidoController extends BaseController {
             ObjectMapper objectMapper = new ObjectMapper();
             PedidosConsumedDTO pedidosConsumed = objectMapper.readValue(clearText, PedidosConsumedDTO.class);
 
-            // Marcar como consumidos usando apenas pedidoIds
-            pedidoService.markConsumed(pedidosConsumed.pedidoIds());
+            // Marcar como consumidos usando apenas pedidoUuids
+            pedidoService.markConsumed(pedidosConsumed.pedidoUuids());
 
             return HttpResponse.ok(SuccessResponse.messageOnly("Pedidos marcados como consumidos com sucesso"));
 
@@ -133,5 +133,4 @@ public class PedidoController extends BaseController {
             throw new RuntimeException("Erro ao processar pedidos consumidos", e);
         }
     }
-
 }
