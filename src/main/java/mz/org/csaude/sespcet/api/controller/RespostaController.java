@@ -69,6 +69,7 @@ public class RespostaController extends BaseController {
                 .map(resposta -> {
                     RespostaDTO dto = new RespostaDTO();
                     dto.setId(resposta.getId());
+                    dto.setUuid(resposta.getUuid());
                     dto.setRespostaIdCt(resposta.getRespostaIdCt());
                     dto.setPedidoIdCt(resposta.getPedidoIdCt());
                     dto.setFacilityCode(resposta.getFacilityCode());

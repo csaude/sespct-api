@@ -2,6 +2,8 @@ package mz.org.csaude.sespcet.api.dto;
 
 import io.micronaut.serde.annotation.Serdeable;
 import lombok.*;
+import mz.org.csaude.sespcet.api.entity.Pedido;
+import mz.org.csaude.sespcet.api.entity.Resposta;
 
 import java.util.Date;
 
@@ -10,7 +12,9 @@ import java.util.Date;
 @Serdeable
 public class RespostaDTO {
 
-    private Long id; // herdado do BaseEntity
+    private Long id;
+
+    private String uuid;
 
     private Long respostaIdCt;
 
@@ -25,4 +29,19 @@ public class RespostaDTO {
     private Date processedAt;
 
     private String errorMsg;
+
+    public RespostaDTO() {
+    }
+
+    public RespostaDTO(Resposta resposta) {
+        this.id = resposta.getId();
+        this.uuid = resposta.getUuid();
+        this.respostaIdCt = resposta.getId();
+        this.pedidoIdCt = resposta.getPedidoIdCt();
+        this.facilityCode = resposta.getFacilityCode();
+        this.payload = resposta.getPayload();
+        this.status = resposta.getStatus().toString();
+        this.processedAt = resposta.getProcessedAt();
+        this.errorMsg = resposta.getErrorMsg();
+    }
 }
