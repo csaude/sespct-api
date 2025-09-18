@@ -1,5 +1,6 @@
 package mz.org.csaude.sespcet.api.repository;
 
+import io.micronaut.data.annotation.Query;
 import io.micronaut.data.annotation.Repository;
 import io.micronaut.data.jpa.repository.JpaRepository;
 import io.micronaut.data.model.Page;
@@ -25,4 +26,7 @@ public interface RespostaRepository extends JpaRepository<Resposta, Long> {
     <S extends Resposta> List<S> saveAll(Iterable<S> entities);
 
     Optional<Resposta> findByRespostaIdCt(Long respostaIdCt);
+
+    @Query("UPDATE Resposta r SET r.status = 'CONSUMED' WHERE r.uuid IN (:uuids)")
+    void markConsumedByUuids(List<String> uuids);
 }
