@@ -13,6 +13,7 @@ import java.util.Date;
 public class PedidoDTO {
 
     private Long id;
+    private String uuid;
     private Long pedidoIdCt;
     private String facilityCode;
     private String payload;
@@ -25,6 +26,7 @@ public class PedidoDTO {
 
     public PedidoDTO(Pedido pedido) {
         this.id = pedido.getId();
+        this.uuid = pedido.getUuid();
         this.pedidoIdCt = pedido.getPedidoIdCt();
         this.facilityCode = pedido.getFacilityCode();
         this.payload = pedido.getPayload();
