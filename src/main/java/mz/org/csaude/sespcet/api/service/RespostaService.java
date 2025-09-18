@@ -3,6 +3,7 @@ package mz.org.csaude.sespcet.api.service;
 import io.micronaut.data.model.Page;
 import io.micronaut.data.model.Pageable;
 import jakarta.inject.Singleton;
+import mz.org.csaude.sespcet.api.entity.Pedido;
 import mz.org.csaude.sespcet.api.entity.Resposta;
 import mz.org.csaude.sespcet.api.repository.RespostaRepository;
 
@@ -26,10 +27,19 @@ public class RespostaService {
     }
 
     public void markConsumed(List<String> respostaUuids) {
-        if (respostaUuids == null || respostaUuids.isEmpty()) return;
+        if (respostaUuids == null || respostaUuids.isEmpty()) {
+            return;
+        }
 
+        // Busca todas respostas correspondentes aos UUIDs
         List<Resposta> respostas = respostaRepository.findByUuidIn(respostaUuids);
-        respostas.forEach(r -> r.setStatus(Resposta.Status.CONSUMED));
-        respostaRepository.saveAll(respostas);
+
+        // Atualiza status
+        for (Resposta resposta : respostas) {
+            resposta.setStatus(Resposta.Status.CONSUMED);
+        }
+
+        // Salva alterações em batch
+        respostaRepository.updateAll(respostas);
     }
 }
