@@ -16,10 +16,10 @@ ENV MICRONAUT_ENVIRONMENTS=production
 
 # Copia o fat JAR (gera antes com: ./gradlew shadowJar)
 # Mantém o nome estável dentro da imagem
-COPY sespct-api-0.2-all.jar /his/sespct/backend/sespct-api-0.2-all.jar
+COPY sespct-api-0.4-all.jar /his/sespct/backend/sespct-api-0.4-all.jar
 
 # Porta da app (conforme application.yml)
 EXPOSE 8383
 
 # Arranque
-CMD ["sh", "-c", "java $JAVA_OPTS -jar /his/sespct/backend/sespct-api-0.2-all.jar"]
+CMD ["sh", "-c", "java $JAVA_OPTS -jar /his/sespct/backend/sespct-api-0.4-all.jar"]

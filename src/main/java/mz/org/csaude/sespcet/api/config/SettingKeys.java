@@ -37,6 +37,8 @@ public final class SettingKeys {
     public static final String CT_WEBHOOK_RETRY_BACKOFF_SECONDS      = "sesp.ct.webhook.retry.backoffSeconds";
     /** Tamanho dos lotes ao enviar pedidoIds no registo do webhook */
     public static final String CT_WEBHOOK_PAGINATION_SIZE            = "sesp.ct.webhook.paginationSize";
+    public static final String CT_WEBHOOK_ID = "sesp.ct.webhook.id";
+
 
     // =========================
     // Sync
@@ -59,6 +61,9 @@ public final class SettingKeys {
 
     public static final String CT_SYNC_RESPOSTAS_ENABLED = "sesp.ct.sync.respostas.enabled"; // boolean
     public static final String CT_SYNC_RESPOSTAS_CRON    = "sesp.ct.sync.respostas.cron";    // informativo (opcional)
-    public static final String CT_SYNC_RESPOSTAS_CURSOR = "sesp.ct.sync.respostas.cursor";
+    public static final String CT_SYNC_RESPOSTAS_CURSOR  = "sesp.ct.sync.respostas.cursor";
+
+    public static final String CT_WEBHOOK_ID_HEADER     = "sesp.ct.webhook.header.id";     // default: X-Webhook-Id
+    public static final String CT_WEBHOOK_SECRET_HEADER = "sesp.ct.webhook.header.secret"; // default: X-Webhook-Secret
 
 }

@@ -44,6 +44,11 @@ public class EctRespostasBackfillJob {
             zoneId = "${sespct.sync.zone:Africa/Maputo}"
     )
     void runDailyRespostasBackfill() {
+        if (!settings.getBoolean(CT_SYNC_RESPOSTAS_ENABLED, true)) {
+            log.info("EctRespostasBackfillJob: sync desativado ({}=false).", CT_SYNC_RESPOSTAS_ENABLED);
+            return;
+        }
+
         if (!running.compareAndSet(false, true)) {
             log.info("EctRespostasBackfillJob: já em execução; ignorando disparo concorrente.");
             return;

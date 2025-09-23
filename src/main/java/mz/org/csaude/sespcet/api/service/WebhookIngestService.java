@@ -6,6 +6,7 @@ import jakarta.inject.Singleton;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import mz.org.csaude.sespcet.api.dto.WebhookResultDTO;
 import mz.org.csaude.sespcet.api.entity.Pedido;
 import mz.org.csaude.sespcet.api.entity.Resposta;
 import mz.org.csaude.sespcet.api.repository.PedidoRepository;
@@ -26,60 +27,139 @@ public class WebhookIngestService {
     private final RespostaRepository respostaRepo;
 
     /**
-     * Recebe JSON claro (desencriptado), persiste como Resposta (ou lança erro)
-     * e devolve a lista de pedidoIds consumidos para ACK posterior.
+     * NOVO: persiste e devolve resultados detalhados por pedido,
+     * prontos para o callback (status, action, message, processing_ms, error).
      */
     @Transactional
-    public List<Long> ingest(String clearJson) throws Exception {
-        Map<String, Object> root = json.readValue(
-                clearJson.getBytes(StandardCharsets.UTF_8),
-                Argument.mapOf(String.class, Object.class)
-        );
+    public List<WebhookResultDTO> ingestDetailed(String clearJson) throws Exception {
+        long startAll = System.currentTimeMillis();
+        List<WebhookResultDTO> results = new ArrayList<>();
 
-        // Suporta payloads com "dadosResposta" OU achatados com "metadados.respostaId"
-        if (root.containsKey("dadosResposta")) {
-            Long pid = processResposta(asMap(root.get("dadosResposta")), clearJson);
-            return pid != null ? List.of(pid) : List.of();
-        }
+        try {
+            Map<String, Object> root = json.readValue(
+                    clearJson.getBytes(StandardCharsets.UTF_8),
+                    Argument.mapOf(String.class, Object.class)
+            );
 
-        Map<String, Object> meta = asMap(root.get("metadados"));
-        if (meta != null && meta.get("respostaId") != null) {
-            Long pid = processResposta(root, clearJson);
-            return pid != null ? List.of(pid) : List.of();
-        }
-
-        // (Opcional) Se o eCT puder enviar lote de respostas num array:
-        if (root.containsKey("respostas") && root.get("respostas") instanceof Collection<?> col) {
-            Set<Long> ids = new LinkedHashSet<>();
-            for (Object o : col) {
-                Map<String, Object> r = asMap(o);
-                if (r != null) {
-                    Long pid = processResposta(r.containsKey("dadosResposta") ? asMap(r.get("dadosResposta")) : r, clearJson);
-                    if (pid != null) ids.add(pid);
+            // Novo: single payload com top-level "response" + "pedido_id"
+            if (root.containsKey("response") && root.get("response") instanceof Collection<?> colList) {
+                // caso a API envie um array em "response" (pouco provável, mas tolerante)
+                for (Object o : colList) {
+                    Map<String, Object> r = asMap(o);
+                    if (r != null) {
+                        results.add(processDetailed(r, clearJson));
+                    }
                 }
+                return results;
             }
-            return new ArrayList<>(ids);
-        }
+            if (root.containsKey("response") && root.get("response") instanceof Map<?, ?> singleResp) {
+                Map<String, Object> r = asMap(singleResp);
+                if (r != null) {
+                    // passar pedido_id do topo para dentro se necessário
+                    if (r.get("pedido_id") == null && root.get("pedido_id") != null) {
+                        r.put("pedido_id", root.get("pedido_id"));
+                    }
+                    results.add(processDetailed(r, clearJson));
+                }
+                return results;
+            }
 
-        throw new IllegalArgumentException("Payload sem 'dadosResposta' ou 'metadados.respostaId'");
+            // Lote no formato "respostas" (antigo)
+            if (root.containsKey("respostas") && root.get("respostas") instanceof Collection<?> col) {
+                for (Object o : col) {
+                    Map<String, Object> r = asMap(o);
+                    if (r != null) {
+                        Map<String, Object> dados = r.containsKey("dadosResposta") ? asMap(r.get("dadosResposta")) : r;
+                        results.add(processDetailed(dados, clearJson));
+                    }
+                }
+                return results;
+            }
+
+            // Única com dadosResposta (antigo)
+            if (root.containsKey("dadosResposta")) {
+                results.add(processDetailed(asMap(root.get("dadosResposta")), clearJson));
+                return results;
+            }
+
+            // Única achatada (antigo)
+            Map<String, Object> meta = asMap(root.get("metadados"));
+            if (meta != null && meta.get("respostaId") != null) {
+                results.add(processDetailed(root, clearJson));
+                return results;
+            }
+
+            // inválido
+            results.add(WebhookResultDTO.builder()
+                    .pedido_id(null)
+                    .status("FAILED")
+                    .action("QUEUED")
+                    .processing_ms(System.currentTimeMillis() - startAll)
+                    .message("Payload inválido: sem 'response' nem 'dadosResposta' nem 'metadados.respostaId'")
+                    .error(WebhookResultDTO.ErrorDTO.builder()
+                            .code("PAYLOAD_INVALID")
+                            .message("Estrutura não reconhecida")
+                            .retry(false)
+                            .build())
+                    .build());
+            return results;
+
+        } catch (Exception e) {
+            results.add(WebhookResultDTO.builder()
+                    .pedido_id(null)
+                    .status("FAILED")
+                    .action("QUEUED")
+                    .processing_ms(System.currentTimeMillis() - startAll)
+                    .message("Falha a parsear/processar payload")
+                    .error(WebhookResultDTO.ErrorDTO.builder()
+                            .code("PAYLOAD_INVALID")
+                            .message(e.getMessage())
+                            .retry(false)
+                            .build())
+                    .build());
+            return results;
+        }
     }
 
     /**
-     * Persiste/actualiza a Resposta; devolve o pedidoId correspondente para ACK.
+     * Persiste/actualiza a Resposta; devolve o pedidoId correspondente.
+     *
+     * Nota: alguns payloads externos usam resposta_id como UUID (não numérico).
+     * A nossa coluna respostaIdCt é numérica; se não for possível obter um Long, gravamos a Resposta sem respostaIdCt.
      */
     private Long processResposta(Map<String, Object> resposta, String payload) {
         if (resposta == null) throw new IllegalStateException("Resposta nula");
 
-        Long respostaId = toLong(str(path(resposta, "metadados", "respostaId"),
-                path(resposta, "respostaId")));
-        Long pedidoId   = toLong(str(path(resposta, "metadados", "pedidoId"),
-                path(resposta, "pedidoId")));
+        // tentar extrair respostaId (pode vir em várias formas)
+        String respostaIdStr = str(
+                path(resposta, "metadados", "respostaId"),
+                path(resposta, "respostaId"),
+                path(resposta, "resposta_id"),
+                path(resposta, "resposta", "resposta_id")
+        );
+        Long respostaId = toLong(respostaIdStr); // só válido se for numérico
 
-        if (respostaId == null) throw new IllegalStateException("Resposta sem respostaId");
-        if (pedidoId == null)   throw new IllegalStateException("Resposta sem pedidoId");
+        // pedidoId — obrigatório e numerico
+        String pedidoIdStr = str(
+                path(resposta, "metadados", "pedidoId"),
+                path(resposta, "pedidoId"),
+                path(resposta, "pedido_id")
+        );
+        Long pedidoId = toLong(pedidoIdStr);
+
+        if (pedidoId == null) throw new IllegalStateException("Resposta sem pedidoId (impossível persistir)");
 
         Resposta r = respostaRepo.findByRespostaIdCt(respostaId).orElseGet(Resposta::new);
-        r.setRespostaIdCt(respostaId);
+
+        if (respostaId != null) {
+            r.setRespostaIdCt(respostaId);
+        } else {
+            // se não tivermos respostaId numérico, mantém-se null (novo registo)
+            if (r.getRespostaIdCt() == null) {
+                // nothing
+            }
+        }
+
         r.setPedidoIdCt(pedidoId);
         r.setPayload(payload);
         r.setStatus(Resposta.Status.NEW);
@@ -95,8 +175,45 @@ public class WebhookIngestService {
 
         respostaRepo.save(r);
 
-        log.info("Resposta {} (pedido {}) gravada/atualizada", respostaId, pedidoId);
+        log.info("Resposta gravada/atualizada (pedido {})", pedidoId);
         return pedidoId;
+    }
+
+    /**
+     * Versão detalhada para montagem do callback.
+     */
+    private WebhookResultDTO processDetailed(Map<String, Object> resposta, String payload) {
+        long t0 = System.currentTimeMillis();
+
+        // tentar obter pedidoId para preencher o DTO, mesmo que a persistência falhe
+        Long pedidoIdForMsg = toLong(str(path(resposta, "metadados", "pedidoId"),
+                path(resposta, "pedidoId"),
+                path(resposta, "pedido_id")));
+
+        try {
+            Long pid = processResposta(resposta, payload);
+            return WebhookResultDTO.builder()
+                    .pedido_id(pid)
+                    .status("SUCCESS")
+                    .action("PROCESSED")
+                    .processing_ms(System.currentTimeMillis() - t0)
+                    .message("Pedido processado com sucesso")
+                    .build();
+        } catch (Exception e) {
+            log.warn("Falha a processar resposta para pedido {}: {}", pedidoIdForMsg, e.getMessage());
+            return WebhookResultDTO.builder()
+                    .pedido_id(pedidoIdForMsg)
+                    .status("FAILED")
+                    .action("QUEUED")
+                    .processing_ms(System.currentTimeMillis() - t0)
+                    .message("Falha a processar resposta")
+                    .error(WebhookResultDTO.ErrorDTO.builder()
+                            .code(mapErr(e))
+                            .message(e.getMessage())
+                            .retry(false)
+                            .build())
+                    .build();
+        }
     }
 
     /* ---------------- helpers ---------------- */
@@ -128,5 +245,11 @@ public class WebhookIngestService {
         if (s == null) return null;
         if (s.matches("\\d+")) return Long.parseLong(s);
         return null;
+    }
+
+    private String mapErr(Exception e) {
+        String msg = e.getMessage() == null ? "" : e.getMessage().toUpperCase();
+        if (msg.contains("PATIENT") && msg.contains("NOT") && msg.contains("FOUND")) return "PATIENT_NOT_FOUND";
+        return "UNKNOWN";
     }
 }

@@ -12,18 +12,24 @@ services:
     networks:
       - sespct-network
     volumes:
-      - ${HOST_LOGS_PATH}:${LOG_PATH}
+      - /his/sespct/backend/log:/his/sespct/backend/log
       - ${HOST_DATA_PATH}:${DATA_PATH}
     environment:
       MICRONAUT_ENVIRONMENTS: ${MICRONAUT_ENVIRONMENTS:-production}
+
+      ENV: PRODUCTION
+      LOG_DIR: ${LOG_PATH}
+
       # DB externo (servidor físico)
       SESPCT_DB_HOST: ${SESPCT_DB_HOST}
       SESPCT_DB_PORT: ${SESPCT_DB_PORT:-3306}
       SESPCT_DB_USERNAME: ${SESPCT_DB_USERNAME}
       SESPCT_DB_PASSWORD: ${SESPCT_DB_PASSWORD}
+
       # JWT
       JWT_GENERATOR_SIGNATURE_SECRET: ${JWT_GENERATOR_SIGNATURE_SECRET}
-      # Logging levels consumed by your logback.xml
+
+      # Logging levels
       ROOT_LOG_LEVEL: ${ROOT_LOG_LEVEL:-INFO}
       APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
     restart: unless-stopped

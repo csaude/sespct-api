@@ -32,11 +32,12 @@ import static mz.org.csaude.sespcet.api.config.SettingKeys.*;
 public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
 
     private static final Logger log = LoggerFactory.getLogger(CtBootstrap.class);
-    private final AtomicBoolean ran = new AtomicBoolean(false); // hard guard against double fire
+    private final AtomicBoolean ran = new AtomicBoolean(false); // guard contra duplo arranque
 
     private final SettingService settings;
     private final CtCompactCrypto crypto;
     private final OAuthService oauth;
+    private final Environment env;
 
     @Value("${micronaut.server.port:8383}")
     int serverPort;
@@ -48,8 +49,6 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
     boolean sslEnabled;
 
     @Inject @Client("/") HttpClient http;
-
-    private final Environment env;
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "ct-bootstrap-scheduler");
@@ -66,9 +65,7 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
 
     @Override
     public void onApplicationEvent(StartupEvent event) {
-        if (!ran.compareAndSet(false, true)) {
-            return; // already executed
-        }
+        if (!ran.compareAndSet(false, true)) return;
         log.info("CtBootstrap: start");
 
         primeBaseAndDerivedUrls();
@@ -77,11 +74,14 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         ensureRegistration();
         primeWebhookSettings();
         primeSyncSettings();
+
         log.info("CtBootstrap: done");
 
-        // Prefetch de token com retries leves (sem registar webhook aqui)
+        // Prefetch de token com retries leves (não regista webhook aqui)
         scheduleTokenFetchWithRetry();
     }
+
+    /* ============================ bootstrap steps ============================ */
 
     private void scheduleTokenFetchWithRetry() {
         final int maxAttempts = 5;
@@ -113,7 +113,6 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         }, delaySec, delaySec, TimeUnit.SECONDS);
     }
 
-    /* -------------------- steps -------------------- */
     private void primeBaseAndDerivedUrls() {
         // ---------- CT base & derivados ----------
         String base = settings.get(CT_BASE_URL, null);
@@ -133,29 +132,21 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         // ---------- SESPCT-API base ----------
         String apiBase = settings.get(SESPCT_API_BASE_URL, null);
         if (isBlank(apiBase)) {
-            String scheme = sslEnabled ? "https" : "http";
-            apiBase = scheme + "://localhost:" + serverPort + normalizePath(contextPath);
+            apiBase = "https://sctdev.csaude.org.mz/api";
             settings.upsert(SESPCT_API_BASE_URL, apiBase, "STRING",
                     "Base URL desta API (SESPCT-API)", true, "system");
         }
 
-        // ---------- CT webhook URL (derivado da base da tua API) ----------
+        // ---------- Webhook público desta API ----------
         if (isBlank(settings.get(CT_WEBHOOK_URL, null))) {
-            String webhookUrl = join(apiBase, "/public/webhook/ect");
+            // Usa o domínio público definitivo
+            String webhookUrl = "https://sctdev.csaude.org.mz/api/public/webhook/ect";
             settings.upsert(CT_WEBHOOK_URL, webhookUrl, "STRING",
                     "URL pública para receção de webhooks do eCT", true, "system");
         }
 
-        if (isBlank(settings.get(CT_ENDPOINT_RESPOSTAS_CONSUMED, null))) {
-            settings.upsert(
-                    CT_ENDPOINT_RESPOSTAS_CONSUMED,
-                    join(base, "/api/respostas/consumed"),
-                    "STRING",
-                    "Endpoint para confirmar consumo de respostas (ACK)",
-                    true,
-                    "system"
-            );
-        }
+        // (LEGADO) removido: CT_ENDPOINT_RESPOSTAS_CONSUMED – não usado no novo fluxo
+        // Se ainda precisares, reintroduz aqui o upsert com a tua rota.
     }
 
     private void ensureClientId() {
@@ -196,7 +187,7 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         String clientId  = settings.get(CT_OAUTH_CLIENT_ID, null);
         String encSecret = settings.get(CT_OAUTH_CLIENT_SECRET, null);
 
-        if (!isBlank(encSecret)) return; // already registered
+        if (!isBlank(encSecret)) return; // já tem secret registado
 
         String plainSecret = "secret-" + UUID.randomUUID();
 
@@ -220,8 +211,6 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
                 "Client secret do OAuth no eCT (cifrado)", true, "system");
     }
 
-    /* -------------------- persist defaults for NEW settings -------------------- */
-
     private void primeWebhookSettings() {
         // Eventos por omissão
         if (isBlank(settings.get(CT_WEBHOOK_EVENTS, null))) {
@@ -229,11 +218,20 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
                     "PEDIDO_REPLIED,RESPOSTA_ADDED",
                     "STRING", "Eventos subscritos para webhook (CSV)", true, "system");
         }
-        // Segredo do webhook
+        // Segredo do webhook (usado no callback header X-Webhook-Secret)
         if (isBlank(settings.get(CT_WEBHOOK_SECRET, null))) {
             String secret = "webhook-" + randomHex(16);
             settings.upsert(CT_WEBHOOK_SECRET, secret,
-                    "SECRET", "Segredo para validação de chamadas de webhook", true, "system");
+                    "SECRET", "Segredo para validação de chamadas de webhook/callback", true, "system");
+        }
+        // Headers padrão (opcional)
+        if (isBlank(settings.get(CT_WEBHOOK_ID_HEADER, null))) {
+            settings.upsert(CT_WEBHOOK_ID_HEADER, "X-Webhook-Id",
+                    "STRING", "Header do deliveryId enviado pelo eCT", true, "system");
+        }
+        if (isBlank(settings.get(CT_WEBHOOK_SECRET_HEADER, null))) {
+            settings.upsert(CT_WEBHOOK_SECRET_HEADER, "X-Webhook-Secret",
+                    "STRING", "Header do segredo no callback para o eCT", true, "system");
         }
         // Timeout e política de retries
         if (settings.get(CT_WEBHOOK_TIMEOUT_SECONDS, null) == null) {
@@ -270,22 +268,18 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         if (settings.get(CT_SYNC_PAGE_LIMIT, null) == null) {
             settings.upsert(CT_SYNC_PAGE_LIMIT, "20", "INTEGER", "Itens por página no fetch eCT", true, "system");
         }
-        // default: job de respostas ativo
         if (settings.get(CT_SYNC_RESPOSTAS_ENABLED, null) == null) {
-            settings.upsert(CT_SYNC_RESPOSTAS_ENABLED, "true",
+            settings.upsert(CT_SYNC_RESPOSTAS_ENABLED, "false",
                     "BOOLEAN", "Backfill de respostas ativo", true, "system");
         }
-
-        // apenas informativo; o agendamento real vem da anotação @Scheduled
         String respostasCron = env.getProperty("sespct.sync.respostas.cron", String.class, "0 0 13 * * ?");
         if (settings.get(CT_SYNC_RESPOSTAS_CRON, null) == null) {
             settings.upsert(CT_SYNC_RESPOSTAS_CRON, respostasCron,
                     "STRING", "CRON configurado para o job de respostas", true, "system");
         }
-
     }
 
-    /* -------------------- helpers -------------------- */
+    /* ============================ helpers ============================ */
 
     private PlainRegisterResult plainRegister(String clientId, String clientSecret, String publicPem) {
         String registerUrl = settings.get(CT_REGISTER_URL, null);
@@ -294,7 +288,7 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         }
         final URI uri;
         try {
-            uri = new URI(registerUrl);  // validate untrusted input
+            uri = new URI(registerUrl);  // valida input
         } catch (URISyntaxException e) {
             throw new IllegalArgumentException("CT register URL inválida: " + registerUrl, e);
         }
@@ -346,10 +340,10 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
 
     private static String normalizePath(String p) {
         if (p == null || p.isBlank()) return "";
-        // garantir que começa com "/" e não termina com "/"
         String s = p.startsWith("/") ? p : "/" + p;
         return s.equals("/") ? "" : s.replaceAll("/+$", "");
     }
+
     private static String join(String base, String suffix) {
         if (base == null) base = "";
         if (suffix == null) suffix = "";

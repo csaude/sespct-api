@@ -4,7 +4,7 @@ plugins {
     id("io.micronaut.aot") version "4.5.4"
 }
 
-version = "0.2"
+version = "0.4"
 group = "mz.org.csaude.sespcet.api"
 
 repositories {
