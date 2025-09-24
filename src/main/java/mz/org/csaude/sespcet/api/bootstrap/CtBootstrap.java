@@ -277,6 +277,11 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
             settings.upsert(CT_SYNC_RESPOSTAS_CRON, respostasCron,
                     "STRING", "CRON configurado para o job de respostas", true, "system");
         }
+        if (settings.get(CT_SYNC_CURSOR_MODE, null) == null) {
+            settings.upsert(CT_SYNC_CURSOR_MODE, "AUTO",
+                    "STRING", "Modo de cursor para sync (AUTO|CURSOR|PEDIDO_ID)", true, "system");
+        }
+
     }
 
     /* ============================ helpers ============================ */

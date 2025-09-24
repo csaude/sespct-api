@@ -8,6 +8,7 @@ import io.micronaut.http.uri.UriBuilder;
 import io.micronaut.json.JsonMapper;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import lombok.extern.slf4j.Slf4j;
 import mz.org.csaude.sespcet.api.crypto.CtCompactCrypto;
 import mz.org.csaude.sespcet.api.dto.EncryptedRequestDTO;
 
@@ -19,6 +20,7 @@ import java.util.*;
 
 import static mz.org.csaude.sespcet.api.config.SettingKeys.*;
 
+@Slf4j
 @Singleton
 public class EctApiClient {
 
@@ -36,23 +38,64 @@ public class EctApiClient {
 
     /** --------- PEDIDOS --------- */
 
-    /** Chama POST /api/v1/pedido-troca-linhas/cursor-pagination com paginação por cursor no corpo. Retorna JSON claro. */
+    /**
+     * Chama POST /api/v1/pedido-troca-linhas/cursor-pagination com paginação por cursor no corpo.
+     * Gera o objecto "cursor" conforme o modo configurado (CT_SYNC_CURSOR_MODE):
+     * - PEDIDO_ID -> { "limit":.., "after":"<pedidoId>", "cursor_type":"pedido_id" }
+     * - CURSOR    -> { "limit":.., "after":"<cursorTokenOrTimestamp>", "direction":"next" }
+     * - AUTO      -> decide entre os dois: numeric -> PEDIDO_ID, caso contrário -> CURSOR
+     *
+     * Retorna JSON claro (desencriptado).
+     */
     public String cursorPedidos(Integer limit, String cursor, String direction, Map<String, Object> criteria) throws Exception {
         if (criteria == null) criteria = java.util.Collections.emptyMap();
 
+        // Modo: AUTO | CURSOR | PEDIDO_ID
+        String modeRaw = settings.get(CT_SYNC_CURSOR_MODE, "AUTO");
+        String mode = modeRaw == null ? "AUTO" : modeRaw.trim().toUpperCase();
+
+        boolean forcePedidoId = "PEDIDO_ID".equals(mode);
+        boolean forceCursor = "CURSOR".equals(mode);
+
+        // Em AUTO, se cursor for numérico (somente dígitos) => pedido_id, senão => cursor
+        boolean autoIsPedidoId = false;
+        if (!forcePedidoId && !forceCursor) {
+            autoIsPedidoId = (cursor != null && cursor.matches("\\d+"));
+        }
+
         final java.util.Map<String, Object> cursorObj = new java.util.HashMap<>();
-        if (limit != null)     cursorObj.put("limit", limit);
-        cursorObj.put("cursor_type", "id");
-        if (direction != null) cursorObj.put("direction", direction);
-        if (cursor != null)    cursorObj.put("after", cursor); // ajuste se a API usar outra chave
+        if (limit != null) cursorObj.put("limit", limit);
+
+        if (forcePedidoId || autoIsPedidoId) {
+            // modo pedido_id -> incluir cursor_type
+            if (cursor != null && !cursor.isBlank()) {
+                cursorObj.put("after", String.valueOf(cursor));
+            }
+            cursorObj.put("cursor_type", "pedido_id");
+        } else {
+            // modo cursor (token / timestamp) -> NÃO incluir cursor_type
+            if (cursor != null && !cursor.isBlank()) {
+                cursorObj.put("after", String.valueOf(cursor));
+            }
+            if (direction != null && !direction.isBlank()) {
+                cursorObj.put("direction", direction);
+            }
+        }
 
         final java.util.Map<String, Object> payload = new java.util.HashMap<>();
         payload.put("cursor", cursorObj);
         payload.put("criteria", criteria);
 
+        // serializar payload claro para debug + envio
         String clearJson = new String(json.writeValueAsBytes(payload), StandardCharsets.UTF_8);
+        log.debug("cursorPedidos (mode={}): sending payload -> {}", mode, clearJson);
+
         String ctPubPem  = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
         String apiPrvPem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
+        if (ctPubPem == null || apiPrvPem == null) {
+            throw new IllegalStateException("Chaves ausentes (CT_KEYS_CT_PUBLIC_PEM / CT_KEYS_SESPCTAPI_PRIVATE_PEM)");
+        }
+
         EncryptedRequestDTO body = crypto.buildEncryptedEnvelope(clearJson, ctPubPem, apiPrvPem);
 
         URI uri = base().path("/api/v1/pedido-troca-linhas/cursor-pagination").build();
@@ -62,14 +105,18 @@ public class EctApiClient {
 
         EncryptedRequestDTO env = http.toBlocking().retrieve(req, Argument.of(EncryptedRequestDTO.class));
 
-        PublicKey  ctPublic   = crypto.readPublicKeyPem(ctPubPem);
-        PrivateKey apiPrivate = crypto.readPrivateKeyPem(apiPrvPem);
+        java.security.PublicKey ctPublic   = crypto.readPublicKeyPem(ctPubPem);
+        java.security.PrivateKey apiPrivate = crypto.readPrivateKeyPem(apiPrvPem);
+
         if (!CtCompactCrypto.verifySignatureOverString(env.data(), env.signature(), ctPublic)) {
             throw new IllegalStateException("Invalid server signature");
         }
         byte[] clear = crypto.decryptCompact(env.data(), apiPrivate);
-        return new String(clear, StandardCharsets.UTF_8);
+        String responseClear = new String(clear, StandardCharsets.UTF_8);
+        log.debug("cursorPedidos: got clear response -> {}", responseClear);
+        return responseClear;
     }
+
 
     /** Página parseada (itens + cursor + flag). */
     public record Page(List<Map<String, Object>> items, String nextCursor, Boolean hasMore) {}

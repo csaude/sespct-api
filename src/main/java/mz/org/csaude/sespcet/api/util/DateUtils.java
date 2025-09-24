@@ -730,4 +730,38 @@ public class DateUtils {
     public static final DateTimeFormatter TIMESTAMP_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
                     .withZone(ZoneId.systemDefault());
+
+    private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE; // yyyy-MM-dd
+
+    /**
+     * Devolve a data de "ontem" no formato ISO local (yyyy-MM-dd) usando o ZoneId do sistema.
+     * Ex.: "2024-01-15"
+     */
+    public static String yesterdayIsoDate() {
+        return yesterdayIsoDate(ZoneId.systemDefault());
+    }
+
+    /**
+     * Devolve a data de "ontem" no formato ISO local (yyyy-MM-dd) usando o zoneId fornecido.
+     * Útil quando queres forçar UTC ou outro fuso: DateUtils.yesterdayIsoDate(ZoneId.of("UTC"))
+     */
+    public static String yesterdayIsoDate(ZoneId zone) {
+        LocalDate yesterday = LocalDate.now(zone).minusDays(1);
+        return yesterday.format(ISO_DATE);
+    }
+
+    // (opcionais) métodos auxiliares caso queiras start/end instants do dia anterior:
+    /**
+     * Inicio do dia de ontem como Instant (no zone especificado).
+     */
+    public static java.time.Instant startOfYesterdayInstant(ZoneId zone) {
+        return LocalDate.now(zone).minusDays(1).atStartOfDay(zone).toInstant();
+    }
+
+    /**
+     * Fim do dia de ontem como Instant (último nanosegundo do dia).
+     */
+    public static java.time.Instant endOfYesterdayInstant(ZoneId zone) {
+        return LocalDate.now(zone).minusDays(1).atTime(23,59,59,999_999_999).atZone(zone).toInstant();
+    }
 }

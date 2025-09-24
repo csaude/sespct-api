@@ -53,14 +53,65 @@ public class EctSyncService {
         int page = 0;
         int totalInserted = 0;
 
-        // Acumula os IDs criados neste ciclo para subscrição no webhook
         final List<Long> newlyInsertedIds = new ArrayList<>();
+        Long maxPedidoIdSeen = null;
+
+        // criteria com dataSubmissao.from = ontem
+        String yesterday = DateUtils.yesterdayIsoDate();
+        Map<String, Object> criteria = new HashMap<>();
+        /*Map<String, Object> dataSubmissao = new HashMap<>();
+        dataSubmissao.put("from", yesterday);
+        criteria.put("dataSubmissao", dataSubmissao);*/
+
+        // ler modo de cursor das settings (AUTO | CURSOR | PEDIDO_ID)
+        String modeRaw = settings.get(CT_SYNC_CURSOR_MODE, "AUTO");
+        String mode = modeRaw == null ? "AUTO" : modeRaw.trim().toUpperCase();
+
+        // se não há startCursor e modo PEDIDO_ID ou AUTO com lastPedidoId, recupera lastPedidoId
+        if (cursor == null) {
+            if ("CURSOR".equals(mode)) {
+                // tentar usar um cursor/token previamente guardado se existir
+                String savedCursor = settings.get(CT_SYNC_CURSOR, null);
+                if (savedCursor != null && !savedCursor.isBlank()) {
+                    cursor = savedCursor;
+                    log.info("Sync: modo CURSOR - usando cursor guardado em settings = {}", cursor);
+                } else {
+                    log.info("Sync: modo CURSOR e sem cursor guardado — inicia sem 'after'");
+                }
+            } else if ("PEDIDO_ID".equals(mode)) {
+                String lastPidStr = settings.get(CT_SYNC_LAST_PEDIDO_ID, null);
+                if (lastPidStr != null && !lastPidStr.isBlank()) {
+                    cursor = lastPidStr;
+                    log.info("Sync: modo PEDIDO_ID - usando lastPedidoId guardado em settings como cursor.after = {}", cursor);
+                } else {
+                    log.info("Sync: modo PEDIDO_ID e sem lastPedidoId — inicia do início (after=null)");
+                }
+            } else { // AUTO
+                String lastPidStr = settings.get(CT_SYNC_LAST_PEDIDO_ID, null);
+                if (lastPidStr != null && !lastPidStr.isBlank()) {
+                    cursor = lastPidStr;
+                    log.info("Sync: modo AUTO - usando lastPedidoId guardado em settings como cursor.after = {}", cursor);
+                } else {
+                    String savedCursor = settings.get(CT_SYNC_CURSOR, null);
+                    if (savedCursor != null && !savedCursor.isBlank()) {
+                        cursor = savedCursor;
+                        log.info("Sync: modo AUTO - usando cursor guardado em settings = {}", cursor);
+                    } else {
+                        log.info("Sync: modo AUTO e sem cursor/lastPedidoId guardado — inicia sem 'after'");
+                    }
+                }
+            }
+        } else {
+            log.info("Sync: startCursor fornecido = {}", cursor);
+        }
+
+        log.info("Sync: iniciar syncMissingPedidos mode={}, criteria={}, initialCursor={}", mode, criteria, cursor);
 
         while (true) {
             page++;
             try {
-                // usa o CLIENTE para paginar e já devolver items/next_cursor/has_more
-                EctApiClient.Page pageResp = ect.pagePedidos(limit != null ? limit : 20, cursor, dir, Collections.emptyMap());
+                // chama client passando 'cursor' (pode ser nextCursor ou lastPedidoId dependendo do modo)
+                EctApiClient.Page pageResp = ect.pagePedidos(limit != null ? limit : 20, cursor, dir, criteria);
 
                 List<Map<String, Object>> items = pageResp.items();
                 if (items == null || items.isEmpty()) {
@@ -79,6 +130,11 @@ public class EctSyncService {
                             dadosPedido.get("pedidoId")
                     );
                     if (pedidoId == null) continue;
+
+                    // actualiza max visto (mesmo para duplicados)
+                    if (maxPedidoIdSeen == null || pedidoId > maxPedidoIdSeen) {
+                        maxPedidoIdSeen = pedidoId;
+                    }
 
                     String facility = str(
                             dadosPedido.get("codigo_unidade_sanitaria"),
@@ -108,24 +164,55 @@ public class EctSyncService {
                 totalInserted += insertedThisPage;
                 log.info("Sync: página {} → inseridos {}", page, insertedThisPage);
 
-                String next = str(pageResp.nextCursor());
+                String next = str(pageResp.nextCursor()); // o cliente pode preencher isto
                 Boolean hasMore = pageResp.hasMore();
 
-                if (Boolean.FALSE.equals(hasMore) || next == null || next.isBlank()) {
-                    log.info("Sync: fim (hasMore={}, next='{}', total inseridos = {})", hasMore, next, totalInserted);
-                    break;
+                // lógica de avanço do cursor consoante o modo
+                if ("CURSOR".equals(mode)) {
+                    // forçar uso de nextCursor — se não vier, paramos
+                    if (next != null && !next.isBlank()) {
+                        cursor = next;
+                        settings.upsert(CT_SYNC_CURSOR, cursor, "STRING", "Último cursor de sync (eCT)", true, "system");
+                    } else {
+                        log.info("Sync: modo CURSOR e servidor não devolveu nextCursor — terminando.");
+                        break;
+                    }
+                } else if ("PEDIDO_ID".equals(mode)) {
+                    // usar pedido_id based cursor: avançamos para maxPedidoIdSeen
+                    if (maxPedidoIdSeen != null) {
+                        cursor = String.valueOf(maxPedidoIdSeen);
+                        settings.upsert(CT_SYNC_CURSOR, cursor, "STRING", "Último cursor de sync (eCT) (pedido_id)", true, "system");
+                    } else {
+                        log.info("Sync: modo PEDIDO_ID e nenhum pedidoId visto — terminando.");
+                        break;
+                    }
+                } else { // AUTO
+                    if (next != null && !next.isBlank()) {
+                        // preferimos nextCursor quando disponível
+                        cursor = next;
+                        settings.upsert(CT_SYNC_CURSOR, cursor, "STRING", "Último cursor de sync (eCT)", true, "system");
+                    } else if (maxPedidoIdSeen != null) {
+                        // fallback para pedido_id
+                        cursor = String.valueOf(maxPedidoIdSeen);
+                        settings.upsert(CT_SYNC_CURSOR, cursor, "STRING", "Último cursor de sync (eCT) (pedido_id-fallback)", true, "system");
+                    } else {
+                        log.info("Sync: AUTO e sem nextCursor nem pedidoId visto — terminando.");
+                        break;
+                    }
                 }
 
-                settings.upsert(CT_SYNC_CURSOR, next, "STRING",
-                        "Último cursor de sync (eCT)", true, "system");
-                cursor = next;
+                // se o servidor indica que não há mais páginas, terminamos
+                if (Boolean.FALSE.equals(hasMore)) {
+                    log.info("Sync: servidor indica hasMore=false — terminando (total inseridos = {})", totalInserted);
+                    break;
+                }
 
             } catch (Exception e) {
                 log.warn("Sync: falha na página {} (cursor={}) → {}", page, cursor, e.toString());
                 break;
             }
 
-            if (page >= 200) { // guarda-chuva
+            if (page >= 200) {
                 log.warn("Sync: limite de páginas atingido ({}). Parando.", page);
                 break;
             }
@@ -134,6 +221,13 @@ public class EctSyncService {
         // Marca última execução
         settings.upsert(CT_SYNC_LAST_RUN_ISO, Instant.now().toString(),
                 "STRING", "Última execução do sync eCT", true, "system");
+
+        // Guarda o último pedidoId visto nesta execução para uso futuro (somente se tivermos um maxPedidoIdSeen)
+        if (maxPedidoIdSeen != null) {
+            settings.upsert(CT_SYNC_LAST_PEDIDO_ID, String.valueOf(maxPedidoIdSeen),
+                    "STRING", "Último pedidoId sincronizado (usado como cursor.after)", true, "system");
+            log.info("Sync: guardado lastPedidoId = {}", maxPedidoIdSeen);
+        }
 
         // Se houve novos pedidos, regista/actualiza o webhook só para eles
         if (!newlyInsertedIds.isEmpty()) {
@@ -152,6 +246,9 @@ public class EctSyncService {
             log.info("Sync: nenhum Pedido novo inserido — sem alterações ao webhook.");
         }
     }
+
+
+
 
     /**
      * Busca respostas no eCT via pageRespostas e grava/actualiza a entidade Resposta.

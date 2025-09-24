@@ -66,4 +66,10 @@ public final class SettingKeys {
     public static final String CT_WEBHOOK_ID_HEADER     = "sesp.ct.webhook.header.id";     // default: X-Webhook-Id
     public static final String CT_WEBHOOK_SECRET_HEADER = "sesp.ct.webhook.header.secret"; // default: X-Webhook-Secret
 
+    // novo: modo de cursor para o sync (AUTO | CURSOR | PEDIDO_ID)
+    public static final String CT_SYNC_CURSOR_MODE = "sesp.ct.sync.cursorMode";
+
+    public static final String CT_SYNC_LAST_PEDIDO_ID = "sesp.ct.sync.lastPedidoId";
+
+
 }
