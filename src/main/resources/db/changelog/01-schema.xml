@@ -299,4 +299,141 @@
         </createTable>
     </changeSet>
 
+    <changeSet id="20250923-01-create-webhook-registration-failure" author="sespct">
+        <createTable tableName="webhook_registration_failure">
+            <column name="id" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false" primaryKeyName="pk_webhook_registration_failure"/>
+            </column>
+
+            <!-- BaseEntity columns (compatíveis com o resto do esquema) -->
+            <column name="UUID" type="VARCHAR(50)">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_webhook_reg_fail_uuid"/>
+            </column>
+            <column name="CREATED_BY" type="VARCHAR(50)"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+            <column name="UPDATED_BY" type="VARCHAR(50)"/>
+            <column name="UPDATED_AT" type="TIMESTAMP"/>
+            <column name="LIFE_CYCLE_STATUS" type="VARCHAR(100)"/>
+
+            <!-- Specific columns -->
+            <column name="pedido_ids_json" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="attempts_left" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total_attempts" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="next_attempt_at" type="TIMESTAMP"/>
+            <column name="last_error" type="TEXT"/>
+        </createTable>
+
+        <createIndex tableName="webhook_registration_failure" indexName="idx_webhook_reg_next_attempt_at">
+            <column name="next_attempt_at"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable tableName="webhook_registration_failure"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="2025-09-24-create-webhook-registration" author="sespct">
+        <createTable tableName="webhook_registration">
+            <column name="ID" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="UUID" type="VARCHAR(50)"/>
+            <column name="CREATED_BY" type="VARCHAR(50)"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+            <column name="UPDATED_BY" type="VARCHAR(50)"/>
+            <column name="UPDATED_AT" type="TIMESTAMP"/>
+            <column name="LIFE_CYCLE_STATUS" type="VARCHAR(100)"/>
+
+            <column name="webhook_id" type="VARCHAR(200)"/>
+            <column name="url" type="VARCHAR(1000)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="secret" type="VARCHAR(500)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="events" type="VARCHAR(500)"/>
+            <column name="capacity" type="INTEGER"/>
+            <column name="current_count" type="INTEGER"/>
+            <column name="active" type="BOOLEAN"/>
+            <column name="created_at_epoch" type="TIMESTAMP"/>
+            <column name="description" type="VARCHAR(1000)"/>
+            <column name="origin" type="VARCHAR(50)"/>
+        </createTable>
+
+        <createIndex indexName="idx_webhook_registration_webhookid" tableName="webhook_registration">
+            <column name="webhook_id"/>
+        </createIndex>
+
+        <createIndex indexName="idx_webhook_registration_active" tableName="webhook_registration">
+            <column name="active"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="2025-09-24-create-webhook-registration-pedido" author="sespct">
+        <createTable tableName="webhook_registration_pedido">
+            <column name="ID" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="UUID" type="VARCHAR(50)"/>
+            <column name="CREATED_BY" type="VARCHAR(50)"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+            <column name="UPDATED_BY" type="VARCHAR(50)"/>
+            <column name="UPDATED_AT" type="TIMESTAMP"/>
+            <column name="LIFE_CYCLE_STATUS" type="VARCHAR(100)"/>
+
+            <column name="pedido_id_ct" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="webhook_registration_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="added_at_epoch" type="TIMESTAMP"/>
+        </createTable>
+
+        <addUniqueConstraint tableName="webhook_registration_pedido" columnNames="pedido_id_ct" constraintName="uc_wr_pedido_pedidoid"/>
+        <createIndex indexName="idx_wr_pedido_pedidoid" tableName="webhook_registration_pedido">
+            <column name="pedido_id_ct"/>
+        </createIndex>
+
+        <addForeignKeyConstraint baseTableName="webhook_registration_pedido"
+                                 baseColumnNames="webhook_registration_id"
+                                 constraintName="fk_wr_pedido_registration"
+                                 referencedTableName="webhook_registration"
+                                 referencedColumnNames="ID"/>
+    </changeSet>
+
+    <changeSet id="2025-09-24-create-webhook-delivery-failures" author="sespct">
+        <createTable tableName="webhook_delivery_failure">
+            <column name="ID" type="BIGINT" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="UUID" type="VARCHAR(50)"/>
+            <column name="CREATED_BY" type="VARCHAR(50)"/>
+            <column name="CREATED_AT" type="TIMESTAMP"/>
+            <column name="UPDATED_BY" type="VARCHAR(50)"/>
+            <column name="UPDATED_AT" type="TIMESTAMP"/>
+            <column name="LIFE_CYCLE_STATUS" type="VARCHAR(100)"/>
+
+            <column name="pedido_id_ct" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="webhook_id" type="VARCHAR(200)"/>
+            <column name="attempts" type="INTEGER"/>
+            <column name="max_attempts" type="INTEGER"/>
+            <column name="last_error" type="TEXT"/>
+            <column name="next_attempt_at" type="TIMESTAMP"/>
+            <column name="created_at_epoch" type="TIMESTAMP"/>
+        </createTable>
+
+        <createIndex indexName="idx_wdf_pedido" tableName="webhook_delivery_failure">
+            <column name="pedido_id_ct"/>
+        </createIndex>
+    </changeSet>
+
 </databaseChangeLog>

@@ -58,6 +58,13 @@ sespct:
   ct:
     bootstrap:
       enabled: true
+  webhook:
+    retry:
+      response:
+        cron: "0 0/3 * * * ?"
+      registration:
+        cron: "0 0/3 * * * ?"
+
   sync:
     enabled: true          # pode desligar sem recompilar
     cron: "0 0/3 * * * ?"    # todos os dias às 13:00

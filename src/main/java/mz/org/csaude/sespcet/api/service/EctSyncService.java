@@ -195,6 +195,8 @@ public class EctSyncService {
                         // fallback para pedido_id
                         cursor = String.valueOf(maxPedidoIdSeen);
                         settings.upsert(CT_SYNC_CURSOR, cursor, "STRING", "Último cursor de sync (eCT) (pedido_id-fallback)", true, "system");
+                        settings.upsert(CT_SYNC_CURSOR_MODE, "PEDIDO_ID",
+                                "STRING", "Modo de cursor para sync (AUTO|CURSOR|PEDIDO_ID)", true, "system");
                     } else {
                         log.info("Sync: AUTO e sem nextCursor nem pedidoId visto — terminando.");
                         break;

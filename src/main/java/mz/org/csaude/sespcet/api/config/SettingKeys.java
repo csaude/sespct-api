@@ -37,8 +37,21 @@ public final class SettingKeys {
     public static final String CT_WEBHOOK_RETRY_BACKOFF_SECONDS      = "sesp.ct.webhook.retry.backoffSeconds";
     /** Tamanho dos lotes ao enviar pedidoIds no registo do webhook */
     public static final String CT_WEBHOOK_PAGINATION_SIZE            = "sesp.ct.webhook.paginationSize";
-    public static final String CT_WEBHOOK_ID = "sesp.ct.webhook.id";
 
+    /** Guarda o último webhook_id criado/registado no eCT (pode haver múltiplos registos se houver muitos ids) */
+    public static final String CT_WEBHOOK_ID                         = "sesp.ct.webhook.id";
+
+    /** Headers esperados no callback do eCT (defaults podem ser inicializados em bootstrap) */
+    public static final String CT_WEBHOOK_ID_HEADER                  = "sesp.ct.webhook.header.id";     // default: X-Webhook-Id
+    public static final String CT_WEBHOOK_SECRET_HEADER              = "sesp.ct.webhook.header.secret"; // default: X-Webhook-Secret
+
+    /** Retry policy para registo/actualização de webhooks (número de tentativas / intervalo em s) */
+    public static final String CT_WEBHOOK_REGISTRATION_RETRY_ATTEMPTS         = "sesp.ct.webhook.registration.retry.attempts";
+    public static final String CT_WEBHOOK_REGISTRATION_RETRY_INTERVAL_SECONDS = "sesp.ct.webhook.registration.retry.intervalSeconds";
+
+    /** Retry policy para DELIVERY (quando fazemos callbacks e alguns pedidos falham) */
+    public static final String CT_WEBHOOK_DELIVERY_RETRY_MAX_ATTEMPTS    = "sesp.ct.webhook.delivery.retry.maxAttempts";
+    public static final String CT_WEBHOOK_DELIVERY_RETRY_BACKOFF_SECONDS = "sesp.ct.webhook.delivery.retry.backoffSeconds";
 
     // =========================
     // Sync
@@ -53,6 +66,12 @@ public final class SettingKeys {
     public static final String CT_SYNC_CURSOR                = "sesp.ct.sync.cursor";
     public static final String CT_SYNC_LAST_RUN_ISO          = "sesp.ct.sync.lastRunIso";
 
+    /** Modo de cursor para o sync: AUTO | CURSOR | PEDIDO_ID */
+    public static final String CT_SYNC_CURSOR_MODE           = "sesp.ct.sync.cursorMode";
+
+    /** Guarda o último pedidoId visto/ sincronizado (usado no modo PEDIDO_ID) */
+    public static final String CT_SYNC_LAST_PEDIDO_ID        = "sesp.ct.sync.lastPedidoId";
+
     // =========================
     // Outros
     // =========================
@@ -62,14 +81,4 @@ public final class SettingKeys {
     public static final String CT_SYNC_RESPOSTAS_ENABLED = "sesp.ct.sync.respostas.enabled"; // boolean
     public static final String CT_SYNC_RESPOSTAS_CRON    = "sesp.ct.sync.respostas.cron";    // informativo (opcional)
     public static final String CT_SYNC_RESPOSTAS_CURSOR  = "sesp.ct.sync.respostas.cursor";
-
-    public static final String CT_WEBHOOK_ID_HEADER     = "sesp.ct.webhook.header.id";     // default: X-Webhook-Id
-    public static final String CT_WEBHOOK_SECRET_HEADER = "sesp.ct.webhook.header.secret"; // default: X-Webhook-Secret
-
-    // novo: modo de cursor para o sync (AUTO | CURSOR | PEDIDO_ID)
-    public static final String CT_SYNC_CURSOR_MODE = "sesp.ct.sync.cursorMode";
-
-    public static final String CT_SYNC_LAST_PEDIDO_ID = "sesp.ct.sync.lastPedidoId";
-
-
 }

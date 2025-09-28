@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micronaut.core.annotation.Introspected;
 import io.micronaut.serde.annotation.Serdeable;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
+import lombok.*;
+import lombok.experimental.SuperBuilder;
 import mz.org.csaude.sespcet.api.api.RestAPIResponse;
 import mz.org.csaude.sespcet.api.util.LifeCycleStatus;
 import mz.org.csaude.sespcet.api.util.Utilities;
@@ -23,6 +21,7 @@ import java.util.UUID;
 @MappedSuperclass
 @Introspected
 @Serdeable.Deserializable
+@SuperBuilder(toBuilder = true)
 public abstract class BaseEntity implements RestAPIResponse, Serializable, Comparable<BaseEntity> {
 
     @Id
@@ -53,16 +52,7 @@ public abstract class BaseEntity implements RestAPIResponse, Serializable, Compa
 
     // Constructor to initialize from BaseEntityDTO
     public BaseEntity(BaseEntityDTO baseEntityDTO) {
-        this.setId(baseEntityDTO.getId());
-        this.setCreatedBy(baseEntityDTO.getCreatedBy());
-        this.setCreatedAt(baseEntityDTO.getCreatedAt());
-        this.setUpdatedBy(baseEntityDTO.getUpdatedBy());
-        this.setUpdatedAt(baseEntityDTO.getUpdatedAt());
 
-        this.setUuid(baseEntityDTO.getUuid() != null ? baseEntityDTO.getUuid() : UUID.randomUUID().toString());
-        if (Utilities.stringHasValue(baseEntityDTO.getLifeCycleStatus())) {
-            this.setLifeCycleStatus(LifeCycleStatus.valueOf(baseEntityDTO.getLifeCycleStatus()));
-        }
     }
 
     protected static final ObjectMapper objectMapper = new ObjectMapper();
