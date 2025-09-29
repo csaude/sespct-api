@@ -18,11 +18,13 @@ import mz.org.csaude.sespcet.api.entity.*;
 import mz.org.csaude.sespcet.api.oauth.OAuthService;
 import mz.org.csaude.sespcet.api.repository.*;
 import mz.org.csaude.sespcet.api.util.DateUtils;
+import mz.org.csaude.sespcet.api.util.LifeCycleStatus;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -88,11 +90,9 @@ public class EctWebhookService {
                 throw new IllegalStateException("Chaves ausentes (CT_KEYS_CT_PUBLIC_PEM / CT_KEYS_SESPCTAPI_PRIVATE_PEM)");
             }
 
-            String secret = settings.get(CT_WEBHOOK_SECRET, "webhook-secret-key-123");
-
-            int timeoutSec = settings.getInt(CT_WEBHOOK_TIMEOUT_SECONDS, 30);
+            int timeoutSec = settings.getInt(CT_WEBHOOK_TIMEOUT_SECONDS, 300);
             int regRetryMax = settings.getInt(CT_WEBHOOK_RETRY_MAX_ATTEMPTS, 3);
-            int regRetryBackoffSec = settings.getInt(CT_WEBHOOK_RETRY_BACKOFF_SECONDS, 30);
+            int regRetryBackoffSec = settings.getInt(CT_WEBHOOK_RETRY_BACKOFF_SECONDS, 300);
 
             int CHUNK = settings.getInt(CT_WEBHOOK_PAGINATION_SIZE, 500);
             List<String> events = eventsFromSettings();
@@ -105,8 +105,8 @@ public class EctWebhookService {
                 if (maybeReuse.isPresent()) {
                     WebhookRegistration wr = maybeReuse.get();
                     try {
-                        // 1) sincroniza remoto
-                        updateRegistrationInCt(wr, webhookUrl, events, secret);
+                        // 1) adicionar os novos pedido_ids no eCT (PUT encriptado)
+                        updateRegistrationInCt(wr, chunk, ctPubPem, apiPrvPem);
 
                         // 2) só depois aplica local (tx nova, atômica)
                         persistAssociations(wr, chunk);
@@ -117,26 +117,26 @@ public class EctWebhookService {
                         recordRegistrationFailure("PUT",
                                 wr.getWebhookId(),
                                 null,
-                                buildUpdatePayloadJson(wr, webhookUrl, events, secret),
+                                buildUpdatePayloadJson(chunk, "Adicionado via SESPCT-API"),
                                 e.getMessage(),
                                 chunk,
                                 1,
                                 e,
                                 "Falha a actualizar no CT; nenhuma alteração local aplicada");
                         log.warn("Falha PUT no CT (webhook_id={}): {}", wr.getWebhookId(), e.toString());
-                        // ✅ NÃO prosseguir; propagar a falha para o Job decrementar attemptsLeft
                         throw new IllegalStateException("Falha PUT no CT para webhook_id=" + wr.getWebhookId(), e);
                     }
                     continue;
                 }
 
-
                 // 2) senão, criar novo registo no eCT (POST) com pedidoIds + timeout + retryPolicy
+                String secretPerWebhook = generateNewSecret(); // <- novo secret por webhook
+
                 Map<String, Object> clear = new LinkedHashMap<>();
                 clear.put("url", webhookUrl);
                 clear.put("events", events);
                 clear.put("pedidoIds", new ArrayList<>(chunk));
-                clear.put("secret", secret);
+                clear.put("secret", secretPerWebhook);
                 clear.put("timeout", timeoutSec);
                 Map<String, Object> retry = new LinkedHashMap<>();
                 retry.put("maxAttempts", regRetryMax);
@@ -152,6 +152,7 @@ public class EctWebhookService {
                 HttpRequest<EncryptedRequestDTO> req = HttpRequest.POST(postUri, env)
                         .contentType(MediaType.APPLICATION_JSON_TYPE)
                         .accept(MediaType.APPLICATION_JSON_TYPE)
+                        .header("X-Webhook-Secret", secretPerWebhook)
                         .bearerAuth(oauth.getToken());
 
                 HttpResponse<String> resp = http.toBlocking().exchange(req, Argument.of(String.class));
@@ -165,14 +166,15 @@ public class EctWebhookService {
                     WebhookRegistration wr = WebhookRegistration.builder()
                             .webhookId(webhookId)
                             .url(webhookUrl)
-                            .secret(secret)
+                            .secret(secretPerWebhook)
                             .eventsCsv(String.join(",", events))
                             .capacity(CHUNK)
-                            .currentCount(chunk.size())
+                            .currentCount(0)
                             .active(true)
                             .description("Criado pelo SESPCT-API")
                             .createdAtEpoch(Instant.now())
                             .createdAt(DateUtils.getCurrentDate())
+                            .lifeCycleStatus(LifeCycleStatus.ACTIVE)
                             .createdBy("System")
                             .origin("POST")
                             .build();
@@ -180,10 +182,9 @@ public class EctWebhookService {
                     persistAssociations(wr, chunk);
                     log.info("Webhook created (webhook_id={}): {} pedidoIds associados", webhookId, chunk.size());
                 } else {
-                    // se chegou aqui -> falha irreparável para este chunk: regista failures
+                    // falha irreparável para este chunk: regista failures
                     log.error("Falhou registo de webhook (chunk) status={} body={}", resp.getStatus(), respBodyClear);
                     markFailuresForPedidoIds(chunk, "REGISTRATION_FAILED: " + resp.getStatus() + " " + respBodyClear);
-
                     throw new IllegalStateException("POST /webhooks falhou: status=" + resp.getStatus()
                             + " body=" + respBodyClear);
                 }
@@ -209,41 +210,19 @@ public class EctWebhookService {
         }
     }
 
-    /** Corpo claro do PUT (sem pedidoIds) para sincronizar URL/secret/events no eCT. */
-    protected String buildUpdatePayloadJson(WebhookRegistration wr,
-                                            String webhookUrl,
-                                            List<String> events,
-                                            String secret) {
+    /** Payload claro do PUT /webhooks/{id}/pedidos (apenas gestão de pedidos) para auditoria/falhas. */
+    protected String buildUpdatePayloadJson(List<Long> pedidoIds, String description) {
         try {
             Map<String, Object> clear = new LinkedHashMap<>();
-            clear.put("url", webhookUrl);
-            clear.put("events", events);
-            clear.put("secret", secret);
-            clear.put("active", Boolean.TRUE.equals(wr.getActive()));
-            clear.put("description", Optional.ofNullable(wr.getDescription())
-                    .orElse("Actualizado pelo SESPCT-API"));
-
-            // Se o eCT aceitar, também pode enviar timeout/retryPolicy aqui:
-            // clear.put("timeout", settings.getInt(CT_WEBHOOK_TIMEOUT_SECONDS, 30));
-            // Map<String,Object> retry = Map.of(
-            //     "maxAttempts", settings.getInt(CT_WEBHOOK_RETRY_MAX_ATTEMPTS, 3),
-            //     "backoffSeconds", settings.getInt(CT_WEBHOOK_RETRY_BACKOFF_SECONDS, 30)
-            // );
-            // clear.put("retryPolicy", retry);
-
-            return new String(json.writeValueAsBytes(clear), java.nio.charset.StandardCharsets.UTF_8);
+            clear.put("pedido_ids", new ArrayList<>(pedidoIds));
+            clear.put("operation", "add");
+            clear.put("description", description == null ? "" : description);
+            return new String(json.writeValueAsBytes(clear), StandardCharsets.UTF_8);
         } catch (Exception e) {
-            // não deve falhar; se falhar, retorna um JSON mínimo
             log.warn("buildUpdatePayloadJson: falha serializando payload: {}", e.toString());
-            return "{\"url\":\"" + webhookUrl + "\"}";
+            return "{\"pedido_ids\":[]}";
         }
     }
-
-
-    // Dependências injetadas em sua classe/serviço
-    // @Inject private WebhookRegistrationFailureRepository wrfRepo;
-    // @Inject private ObjectMapper json;
-    // @Inject private SettingService settings;
 
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     protected void recordRegistrationFailure(String operation,
@@ -252,55 +231,45 @@ public class EctWebhookService {
                                              String requestPayloadJson,
                                              String responseBodyClear,
                                              List<Long> pedidoIds,
-                                             int attempt,                 // 1, 2, ...
-                                             Throwable ex,                // pode ser null
+                                             int attempt,
+                                             Throwable ex,
                                              String notes) {
-
         try {
             if (pedidoIds == null || pedidoIds.isEmpty()) return;
 
             final int totalAttempts  = settings.getInt(CT_WEBHOOK_RETRY_MAX_ATTEMPTS, 3);
             final int backoffSeconds = settings.getInt(CT_WEBHOOK_RETRY_BACKOFF_SECONDS, 30);
-            final int attemptsLeft   = Math.max(totalAttempts - attempt, 0);
 
-            // Monta uma mensagem única no campo lastError (teu modelo tem apenas esse campo “livre”)
             StringBuilder sb = new StringBuilder(512);
             if (operation != null) sb.append("op=").append(operation).append("; ");
             if (webhookId != null) sb.append("webhookId=").append(webhookId).append("; ");
             if (httpStatus != null) sb.append("status=").append(httpStatus).append("; ");
             if (notes != null && !notes.isBlank()) sb.append("notes=").append(notes).append("; ");
-
             if (ex != null) {
                 sb.append("ex=").append(ex.getClass().getSimpleName()).append(": ")
                         .append(String.valueOf(ex.getMessage())).append("; ");
             }
-
-            // Inclui pedaços truncados do request/response para diagnóstico
             if (requestPayloadJson != null && !requestPayloadJson.isBlank()) {
                 sb.append("req=").append(truncate(requestPayloadJson, 800)).append("; ");
             }
             if (responseBodyClear != null && !responseBodyClear.isBlank()) {
                 sb.append("resp=").append(truncate(responseBodyClear, 800)).append("; ");
             }
-
             String lastError = sb.toString();
 
             String keyJson = canonicalPedidoIdsJson(pedidoIds);
 
-            // tenta reaproveitar um aberto do mesmo grupo de IDs
             var curOpt = regFailureRepo.findOpenByPedidoIdsJson(keyJson, Instant.now());
             if (curOpt.isPresent()) {
                 var cur = curOpt.get();
-                // apenas atualiza diagnóstico e reagenda; quem decrementa attempts é o Job
                 cur.setLastError(lastError);
                 cur.setNextAttemptAt(Instant.now().plusSeconds(Math.max(backoffSeconds, 0)));
                 regFailureRepo.save(cur);
                 return;
             }
 
-            // cria novo (primeira ocorrência para este grupo de IDs)
             WebhookRegistrationFailure failure = WebhookRegistrationFailure.builder()
-                    .pedidoIdsJson(keyJson) // ⚠️ usa o canónico!
+                    .pedidoIdsJson(keyJson)
                     .attemptsLeft(Math.max(totalAttempts - attempt, 0))
                     .totalAttempts(totalAttempts)
                     .nextAttemptAt(Instant.now().plusSeconds(Math.max(backoffSeconds, 0)))
@@ -312,7 +281,6 @@ public class EctWebhookService {
             regFailureRepo.save(failure);
 
         } catch (Exception persistEx) {
-            // Não interrompe o fluxo principal
             log.warn("recordRegistrationFailure: falha ao persistir registo: {}", persistEx.toString());
         }
     }
@@ -324,7 +292,6 @@ public class EctWebhookService {
                 .distinct()
                 .sorted()
                 .toList();
-        // construir JSON estável sem depender do mapper
         StringBuilder sb = new StringBuilder(norm.size() * 6 + 2);
         sb.append('[');
         for (int i = 0; i < norm.size(); i++) {
@@ -375,41 +342,62 @@ public class EctWebhookService {
         wrRepo.save(wr);
     }
 
-    private void updateRegistrationInCt(WebhookRegistration wr, String webhookUrl, List<String> events, String secret) throws Exception {
-        String ctPubPem  = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
-        String apiPrvPem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
-        if (wr.getWebhookId() == null) throw new IllegalStateException("WebhookRegistration sem webhookId");
+    /**
+     * PUT ENCRIPTADO para gerir pedidos num webhook existente:
+     *   Endpoint: /api/v1/webhooks/{webhook_id}/pedidos
+     *   Body claro: {"pedido_ids":[...], "operation":"add", "description":"..."}
+     */
+    private void updateRegistrationInCt(WebhookRegistration wr,
+                                        List<Long> pedidoIds,
+                                        String ctPubPem,
+                                        String apiPrvPem) {
+        if (wr == null || wr.getWebhookId() == null) {
+            throw new IllegalArgumentException("WebhookRegistration inválido (webhookId é obrigatório).");
+        }
+        if (pedidoIds == null || pedidoIds.isEmpty()) return;
 
-        Map<String,Object> clearUpdate = new LinkedHashMap<>();
-        clearUpdate.put("secret", secret);
-        clearUpdate.put("url", webhookUrl);
-        clearUpdate.put("events", events);
-        clearUpdate.put("active", true);
-        clearUpdate.put("description", wr.getDescription() == null ? "Updated webhook from SESPCT-API" : wr.getDescription());
+        String webhookSecret = wr.getSecret();
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            webhookSecret = settings.get(CT_WEBHOOK_SECRET, ""); // fallback prudente
+        }
 
-        String clearJsonUpdate = new String(json.writeValueAsBytes(clearUpdate), StandardCharsets.UTF_8);
-        EncryptedRequestDTO bodyUpdate = crypto.buildEncryptedEnvelope(clearJsonUpdate, ctPubPem, apiPrvPem);
+        String clearJson = null;
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("pedido_ids", new ArrayList<>(pedidoIds));
+            body.put("operation", "add");
+            body.put("description", "Adicionado via SESPCT-API");
 
-        URI putUri = buildCtUri("/api/v1/webhooks/" + wr.getWebhookId());
-        HttpRequest<EncryptedRequestDTO> req = HttpRequest.PUT(putUri, bodyUpdate)
-                .contentType(MediaType.APPLICATION_JSON_TYPE)
-                .accept(MediaType.APPLICATION_JSON_TYPE)
-                .bearerAuth(oauth.getToken());
-        HttpResponse<String> resp = http.toBlocking().exchange(req, Argument.of(String.class));
-        int code = resp.getStatus().getCode();
-        String respBodyEncrypted = resp.getBody().orElse("");
-        String respBodyClear = tryDecryptResponse(respBodyEncrypted, ctPubPem, apiPrvPem);
+            clearJson = new String(json.writeValueAsBytes(body), StandardCharsets.UTF_8);
+            EncryptedRequestDTO env = crypto.buildEncryptedEnvelope(clearJson, ctPubPem, apiPrvPem);
 
-        if (code >= 200 && code < 300) {
-            wr.setUrl(webhookUrl);
-            wr.setSecret(secret);
-            wr.setEventsCsv(String.join(",", events));
-            wrRepo.save(wr);
-        } else {
-            if (resp.getStatus() == HttpStatus.NOT_FOUND) {
-                throw new IllegalStateException("Webhook not found in CT (404)");
+            URI putUri = buildCtUri("/api/v1/webhooks/" + wr.getWebhookId() + "/pedidos");
+            HttpRequest<EncryptedRequestDTO> req = HttpRequest
+                    .PUT(putUri, env)
+                    .contentType(MediaType.APPLICATION_JSON_TYPE)
+                    .accept(MediaType.APPLICATION_JSON_TYPE)
+                    .header("X-Webhook-Secret", webhookSecret)
+                    .bearerAuth(oauth.getToken());
+
+            HttpResponse<String> resp = http.toBlocking().exchange(req, Argument.of(String.class));
+            int code = resp.getStatus().getCode();
+            String respBodyEncrypted = resp.getBody().orElse("");
+            String respBodyClear = tryDecryptResponse(respBodyEncrypted, ctPubPem, apiPrvPem);
+
+            if (code < 200 || code >= 300) {
+                throw new IllegalStateException("PUT /webhooks/{id}/pedidos falhou: status="
+                        + resp.getStatus() + " body=" + respBodyClear);
             }
-            throw new IllegalStateException("Failed to update webhook in CT: " + resp.getStatus() + " " + respBodyClear);
+
+            log.info("Pedidos adicionados ao webhook_id={} ({} ids). Resposta CT: {}",
+                    wr.getWebhookId(), pedidoIds.size(), respBodyClear);
+
+        } catch (io.micronaut.http.client.exceptions.HttpClientResponseException e) {
+            String body = e.getResponse().getBody(String.class).orElse("");
+            throw new IllegalStateException("Falha HTTP no PUT de pedidos: status=" + e.getStatus()
+                    + " body=" + body, e);
+        } catch (Exception e) {
+            throw new IllegalStateException("Erro no PUT de pedidos: " + e.getMessage(), e);
         }
     }
 
@@ -507,9 +495,13 @@ public class EctWebhookService {
                 .path("/" + webhookId)
                 .build();
 
-        String secret = settings.get(CT_WEBHOOK_SECRET, null);
+        String secret = null;
         Optional<WebhookRegistration> wrOpt = wrRepo.findByWebhookId(webhookId);
         if (wrOpt.isPresent()) secret = wrOpt.get().getSecret();
+        if (secret == null) {
+            // fallback (não recomendado): tenta global, se existir
+            secret = settings.get(CT_WEBHOOK_SECRET, "");
+        }
 
         String clearJson = new String(json.writeValueAsBytes(payload), StandardCharsets.UTF_8);
         EncryptedRequestDTO env = crypto.buildEncryptedEnvelope(clearJson, ctPubPem, apiPrvPem);
@@ -517,7 +509,7 @@ public class EctWebhookService {
         HttpRequest<EncryptedRequestDTO> req = HttpRequest.POST(uri, env)
                 .contentType(MediaType.APPLICATION_JSON_TYPE)
                 .accept(MediaType.APPLICATION_JSON_TYPE)
-                .header("X-Webhook-Secret", secret == null ? "" : secret)
+                .header("X-Webhook-Secret", secret)
                 .bearerAuth(oauth.getToken());
 
         HttpResponse<String> resp = http.toBlocking().exchange(req, Argument.of(String.class));
@@ -535,18 +527,12 @@ public class EctWebhookService {
        NOVOS MÉTODOS: retryDeliveryFailure e retryRegistrationFailure
        ========================================================================================= */
 
-    /**
-     * Re-tenta a entrega (callback) de um pedido que previamente falhou.
-     * - Reconstrói um WebhookClientResponseDTO mínimo para o pedido e tenta enviar usando o webhookId associado.
-     * - Lança Exception em caso de falha (o job chamador deverá re-agendar / incrementar attempts).
-     */
     public void retryDeliveryFailure(WebhookDeliveryFailure failure) throws Exception {
         if (failure == null) throw new IllegalArgumentException("failure null");
 
         Long pedidoId = failure.getPedidoIdCt();
         if (pedidoId == null) throw new IllegalArgumentException("WebhookDeliveryFailure sem pedidoIdCt");
 
-        // determina webhookId a usar: primeiro do próprio failure, senão via associação local
         String webhookId = failure.getWebhookId();
         if (webhookId == null || webhookId.isBlank()) {
             Optional<WebhookRegistrationPedido> link = wrPedidoRepo.findByPedidoIdCt(pedidoId);
@@ -559,8 +545,8 @@ public class EctWebhookService {
             throw new IllegalStateException("Não foi possível determinar webhookId para pedido " + pedidoId);
         }
 
-        // monta resultado mínimo (fallback) para re-entrega
-        boolean willRetry = (failure.getAttempts() == null ? 0 : failure.getAttempts()) < (failure.getMaxAttempts() == null ? settings.getInt(CT_WEBHOOK_DELIVERY_RETRY_MAX_ATTEMPTS, 3) : failure.getMaxAttempts());
+        boolean willRetry = (failure.getAttempts() == null ? 0 : failure.getAttempts()) <
+                (failure.getMaxAttempts() == null ? settings.getInt(CT_WEBHOOK_DELIVERY_RETRY_MAX_ATTEMPTS, 3) : failure.getMaxAttempts());
 
         WebhookResultDTO.ErrorDTO err = WebhookResultDTO.ErrorDTO.builder()
                 .code("DELIVERY_FAILED")
@@ -584,15 +570,9 @@ public class EctWebhookService {
                 .results(List.of(r))
                 .build();
 
-        // tenta enviar — se falhar lança Exception para o job tratar (incrementar attempts / reagendar)
         postClientResponseUsingWebhookId(webhookId, out);
     }
 
-    /**
-     * Re-tenta o registo de webhook para um record de falha de registo.
-     * - Espera-se que a entidade WebhookRegistrationFailure contenha os pedidoIds (ou outro payload).
-     * - Lança exception se falhar (o job chamador actualizará attempts / nextAttemptAt).
-     */
     public void retryRegistrationFailure(WebhookRegistrationFailure rec) throws Exception {
         if (rec == null) throw new IllegalArgumentException("rec null");
 
@@ -602,7 +582,6 @@ public class EctWebhookService {
             throw new IllegalArgumentException("WebhookRegistrationFailure sem pedidoIds para retry (id=" + rec.getId() + ")");
         }
 
-        // tenta re-registar os pedidos do record (pode lançar e o job chamador lida com retries)
         registerForPedidoIds(pedidoIds);
     }
 
@@ -702,5 +681,12 @@ public class EctWebhookService {
         if (results == null || results.isEmpty()) return;
         List<Long> ids = results.stream().map(WebhookResultDTO::getPedido_id).filter(Objects::nonNull).collect(Collectors.toList());
         markFailuresForPedidoIds(ids, reason);
+    }
+
+    /** Gera um secret aleatório por webhook (Base64 URL-safe, ~32 bytes). */
+    private String generateNewSecret() {
+        byte[] buf = new byte[32];
+        new SecureRandom().nextBytes(buf);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
     }
 }
