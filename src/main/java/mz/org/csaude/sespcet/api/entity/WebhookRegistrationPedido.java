@@ -20,7 +20,7 @@ public class WebhookRegistrationPedido extends BaseEntity {
     @Column(name = "pedido_id_ct", nullable = false)
     private Long pedidoIdCt;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "webhook_registration_id", nullable = false)
     private WebhookRegistration webhookRegistration;
 

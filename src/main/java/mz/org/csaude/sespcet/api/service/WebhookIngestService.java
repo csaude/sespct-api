@@ -185,7 +185,6 @@ public class WebhookIngestService {
     private WebhookResultDTO processDetailed(Map<String, Object> resposta, String payload) {
         long t0 = System.currentTimeMillis();
 
-        // tentar obter pedidoId para preencher o DTO, mesmo que a persistência falhe
         Long pedidoIdForMsg = toLong(str(path(resposta, "metadados", "pedidoId"),
                 path(resposta, "pedidoId"),
                 path(resposta, "pedido_id")));
@@ -200,11 +199,23 @@ public class WebhookIngestService {
                     .message("Pedido processado com sucesso")
                     .build();
         } catch (Exception e) {
+            // Se for DUPLICATE (já existe), tratar como sucesso idempotente
+            if (isDuplicateRespostaId(e)) {
+                log.info("Resposta já existente para pedido {}. Assumindo como processada (idempotente).", pedidoIdForMsg);
+                return WebhookResultDTO.builder()
+                        .pedido_id(pedidoIdForMsg)
+                        .status("SUCCESS")
+                        .action("PROCESSED")
+                        .processing_ms(System.currentTimeMillis() - t0)
+                        .message("Resposta já existente (idempotente)")
+                        .build();
+            }
+
             log.warn("Falha a processar resposta para pedido {}: {}", pedidoIdForMsg, e.getMessage());
             return WebhookResultDTO.builder()
                     .pedido_id(pedidoIdForMsg)
                     .status("FAILED")
-                    .action("QUEUED")
+                    .action("RETRY")
                     .processing_ms(System.currentTimeMillis() - t0)
                     .message("Falha a processar resposta")
                     .error(WebhookResultDTO.ErrorDTO.builder()
@@ -215,6 +226,36 @@ public class WebhookIngestService {
                     .build();
         }
     }
+
+    /** Detecta violação de UNIQUE para 'uk_respostas_resposta_id_ct' (idempotência). */
+    private boolean isDuplicateRespostaId(Throwable ex) {
+        final String TARGET_CONSTRAINT = "uk_respostas_resposta_id_ct";
+
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            // Hibernate
+            if (t instanceof org.hibernate.exception.ConstraintViolationException cve) {
+                String name = cve.getConstraintName();
+                if (name != null && name.equalsIgnoreCase(TARGET_CONSTRAINT)) return true;
+
+                java.sql.SQLException sql = cve.getSQLException();
+                if (isSqlDuplicate(sql)) return true;
+            }
+            // JDBC/vendor
+            if (t instanceof java.sql.SQLIntegrityConstraintViolationException sicve) {
+                if (isSqlDuplicate(sicve)) return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSqlDuplicate(java.sql.SQLException sql) {
+        if (sql == null) return false;
+        // SQLState 23000 = integrity constraint violation (MySQL/MariaDB)
+        if ("23000".equals(sql.getSQLState())) return true;
+        String msg = sql.getMessage();
+        return msg != null && msg.toLowerCase().contains("duplicate entry");
+    }
+
 
     /* ---------------- helpers ---------------- */
 
