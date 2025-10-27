@@ -61,13 +61,13 @@ sespct:
   webhook:
     retry:
       response:
-        cron: "0 0/3 * * * ?"
+        cron: "0 0 0/1 * * ?"
       registration:
-        cron: "0 0/3 * * * ?"
+        cron: "0 0 0/1 * * ?"
 
   sync:
     enabled: true          # pode desligar sem recompilar
-    cron: "0 0/3 * * * ?"    # todos os dias às 13:00
+    cron: "0 0 0/1 * * ?"    # todos os dias às 13:00
     zone: "Africa/Maputo"  # timezone local
     limit: 20              # itens por página
     respostas:

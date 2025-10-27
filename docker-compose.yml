@@ -2,11 +2,8 @@ version: "3.8"
 
 services:
   backend:
-    image: sespct-api:latest
+    image: hub.csaude.org.mz/sespct-api/sespct-api:${VERSION:-latest}
     container_name: sespct-api
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
     ports:
       - "8383:8383"
     networks:

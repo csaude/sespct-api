@@ -83,7 +83,7 @@ public class EctWebhookService {
             if (pedidoIds == null || pedidoIds.isEmpty()) return;
 
             String webhookUrl = settings.get(CT_WEBHOOK_URL,
-                    "https:sct.csaude.org.mz/api/public/webhook/ect");
+                    "https://sespct.csaude.org.mz/api/public/webhook/ect");
             String ctPubPem = settings.get(CT_KEYS_CT_PUBLIC_PEM, null);
             String apiPrvPem = settings.get(CT_KEYS_SESPCTAPI_PRIVATE_PEM, null);
             if (ctPubPem == null || apiPrvPem == null) {

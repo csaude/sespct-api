@@ -147,14 +147,14 @@ public class CtBootstrap implements ApplicationEventListener<StartupEvent> {
         String apiBase = settings.get(SESPCT_API_BASE_URL, null);
         if (isBlank(apiBase)) {
             // default para ambiente de dev - podes sobrepor via environment / settings
-            apiBase = "https://sctdev.csaude.org.mz/api";
+            apiBase = "https://sespct.csaude.org.mz/api";
             settings.upsert(SESPCT_API_BASE_URL, apiBase, "STRING",
                     "Base URL desta API (SESPCT-API)", true, "system");
         }
 
         // Webhook público desta API (endpoint que o eCT irá chamar)
         if (isBlank(settings.get(CT_WEBHOOK_URL, null))) {
-            String webhookUrl = "https://sctdev.csaude.org.mz/api/public/webhook/ect";
+            String webhookUrl = "https://sespct.csaude.org.mz/api/public/webhook/ect";
             settings.upsert(CT_WEBHOOK_URL, webhookUrl, "STRING",
                     "URL pública para receção de webhooks do eCT", true, "system");
         }
