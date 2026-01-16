@@ -6,6 +6,8 @@ import java.lang.reflect.Array;
 import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.text.SimpleDateFormat;
@@ -223,5 +225,27 @@ public class Utilities {
         byte[] salt = new byte[32];
         random.nextBytes(salt);
         return Base64.getEncoder().encodeToString(salt);
+    }
+
+    public static String hashOf(Collection<Long> pedidoIds) {
+        if (pedidoIds == null || pedidoIds.isEmpty()) return null;
+
+        // normaliza lista: remove nulls, distinct, ordena
+        var norm = pedidoIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .sorted()
+                .toList();
+
+        // canónico: id1,id2,id3
+        String canonical = String.join(",", norm.stream().map(String::valueOf).toList());
+
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest); // 64 chars, lower-case
+        } catch (Exception e) {
+            return Integer.toHexString(canonical.hashCode()); // fallback
+        }
     }
 }

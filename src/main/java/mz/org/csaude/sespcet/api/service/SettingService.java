@@ -60,23 +60,25 @@ public class SettingService {
         catch (IllegalArgumentException ex) { return def; }
     }
 
-    /** Upsert + invalidação da cache dessa key. */
-    @CacheInvalidate(cacheNames = "settings") // invalida usando 'key' como parâmetro do método
+    @CacheInvalidate(cacheNames = "settings", parameters = {"key"})
     public void upsert(String key, String value, String type, String description, boolean enabled, String actor) {
-        Setting s = repo.findByDesignation(key).orElseGet(Setting::new);
+        var s = repo.findByDesignation(key).orElseGet(Setting::new);
         s.setDesignation(key);
         s.setValue(value);
         s.setType(type);
         s.setEnabled(enabled);
         s.setDescription(description);
+
         if (s.getId() == null) {
             s.setCreatedBy(actor != null ? actor : "system");
             s.setLifeCycleStatus(LifeCycleStatus.ACTIVE);
+            repo.save(s);       // insert
         } else {
             s.setUpdatedBy(actor != null ? actor : "system");
+            repo.update(s);     // <- crucial: UPDATE, not save/persist
         }
-        repo.save(s);
     }
+
 
     @CacheInvalidate(cacheNames = "settings", all = true)
     public void evictAll() {}

@@ -2,27 +2,33 @@ version: "3.8"
 
 services:
   backend:
-    image: sespct-api:latest
+    image: hub.csaude.org.mz/sespct-api/sespct-api:${VERSION:-latest}
     container_name: sespct-api
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
     ports:
       - "8383:8383"
     networks:
       - sespct-network
     volumes:
       - /his/sespct/backend/log:/his/sespct/backend/log
-      - /his/sespct/backend/data:/his/sespct/backend/data
+      - ${HOST_DATA_PATH}:${DATA_PATH}
     environment:
       MICRONAUT_ENVIRONMENTS: ${MICRONAUT_ENVIRONMENTS:-production}
+
+      ENV: PRODUCTION
+      LOG_DIR: ${LOG_PATH}
+
       # DB externo (servidor físico)
       SESPCT_DB_HOST: ${SESPCT_DB_HOST}
       SESPCT_DB_PORT: ${SESPCT_DB_PORT:-3306}
       SESPCT_DB_USERNAME: ${SESPCT_DB_USERNAME}
       SESPCT_DB_PASSWORD: ${SESPCT_DB_PASSWORD}
+
       # JWT
       JWT_GENERATOR_SIGNATURE_SECRET: ${JWT_GENERATOR_SIGNATURE_SECRET}
+
+      # Logging levels
+      ROOT_LOG_LEVEL: ${ROOT_LOG_LEVEL:-INFO}
+      APP_LOG_LEVEL: ${APP_LOG_LEVEL:-INFO}
     restart: unless-stopped
 
 networks:

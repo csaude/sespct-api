@@ -16,7 +16,10 @@ micronaut:
           secret:
             generator:
               # defina por variável de ambiente em produção
-              secret: ${JWT_GENERATOR_SIGNATURE_SECRET:pleaseChangeThisSecretForANewOne}
+              secret: ${JWT_GENERATOR_SIGNATURE_SECRET}
+      generator:
+        access-token:
+          expiration: 900000
 ---
 netty:
   default:
@@ -55,10 +58,17 @@ sespct:
   ct:
     bootstrap:
       enabled: true
+  webhook:
+    retry:
+      response:
+        cron: "0 0 0/1 * * ?"
+      registration:
+        cron: "0 0 0/1 * * ?"
+
   sync:
     enabled: true          # pode desligar sem recompilar
-    cron: "0 0 13 * * ?"    # todos os dias às 02:05
+    cron: "0 0 0/1 * * ?"    # todos os dias às 13:00
     zone: "Africa/Maputo"  # timezone local
     limit: 20              # itens por página
     respostas:
-      cron: "0 0 13 * * ?"
+      cron: "0 0 * * * *"

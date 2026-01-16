@@ -14,12 +14,11 @@ VOLUME ["/his/sespct/backend/log", "/his/sespct/backend/data"]
 ENV JAVA_OPTS="-Xms256m -Xmx512m"
 ENV MICRONAUT_ENVIRONMENTS=production
 
-# Copia o fat JAR (gera antes com: ./gradlew shadowJar)
-# Mantém o nome estável dentro da imagem
-COPY build/libs/*-all.jar /his/sespct/backend/sespct-api-all.jar
+# copies from the build context (project root) into the image
+COPY build/libs/sespct-api-0.4-all.jar /his/sespct/backend/sespct-api-0.4-all.jar
 
 # Porta da app (conforme application.yml)
 EXPOSE 8383
 
 # Arranque
-CMD ["sh", "-c", "java $JAVA_OPTS -jar /his/sespct/backend/sespct-api-all.jar"]
+CMD ["sh", "-c", "java $JAVA_OPTS -jar /his/sespct/backend/sespct-api-0.4-all.jar"]
